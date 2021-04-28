@@ -1,14 +1,44 @@
 // Reference: https://github.com/webrtc/samples/blob/gh-pages/src/content/peerconnection/pc1/js/main.js
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import "./App.css";
-
 import VideoStream from "./VideoStream";
+
+const socketUrl = "mywebsocketserver";
+
+type peerMessageType = "offer" | "answer" | "iceCandidate";
+
+type peerMessage = {
+  senderConnectionId: string;
+  messageType: peerMessageType;
+  message: string;
+};
+
+const configuration = {
+  iceServers: [
+    {
+      urls: "stun:mystunserver",
+    },
+    {
+      urls: "turn:myturnserver",
+      username: "username",
+      credential: "password",
+    },
+  ],
+};
+
+const connectionOptions = {
+  offerToReceiveAudio: true,
+  offerToReceiveVideo: true,
+};
 
 function App() {
   const [localStream, setLocalStream] = useState<MediaStream>();
   const [remoteStream, setRemoteStream] = useState<MediaStream>();
+  const [localConnectionId, setLocalConnectionId] = useState<string>();
+  const [remoteConnectionId, setRemoteConnectionId] = useState<string>("");
   const [localConnection, setLocalConnection] = useState<RTCPeerConnection>();
-  const [remoteConnection, setRemoteConnection] = useState<RTCPeerConnection>();
+  const [socketConnected, setSocketConnected] = useState<boolean>(false);
+  const webSocket = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     // https://blog.logrocket.com/responsive-camera-component-react-hooks/
@@ -25,35 +55,75 @@ function App() {
     }
   }, [localStream]);
 
-  const getOtherPeer = (peer: RTCPeerConnection) =>
-    peer === localConnection ? remoteConnection : localConnection;
-  const getPeerName = (peer: RTCPeerConnection) =>
-    peer === localConnection ? "local" : "remote";
+  useEffect(() => {
+    let local = new RTCPeerConnection(configuration);
+    setLocalConnection(local);
+    webSocket.current = new WebSocket(socketUrl);
 
-  const onicecandidate = (
-    peer: RTCPeerConnection,
-    iceEvent: RTCPeerConnectionIceEvent
+    webSocket.current.addEventListener("open", (_ev) => {
+      console.log("Socket connection opened.");
+      webSocket.current?.send("");
+    });
+
+    webSocket.current.addEventListener("close", (_ev) => {
+      console.log("Socket connection closed.");
+    });
+
+    return () => webSocket.current?.close();
+  }, []);
+
+  useEffect(() => {
+    if (!webSocket.current) return;
+
+    webSocket.current.addEventListener("message", (messageEvent) => {
+      if (!messageEvent.data) return;
+      let response = JSON.parse(messageEvent.data);
+      console.log(response);
+      if (response.responseType === "defaultStatus") {
+        setLocalConnectionId(response.connectionId);
+      } else if (response.responseType === "peerMessage") {
+        handlePeerMessage(response);
+      }
+    });
+  }, [socketConnected]);
+
+  const handlePeerMessage = (peerMessage: peerMessage) => {
+    console.log(peerMessage);
+    setRemoteConnectionId(peerMessage.senderConnectionId);
+    if (peerMessage.messageType === "offer")
+      onOffer(JSON.parse(peerMessage.message), peerMessage.senderConnectionId);
+    else if (peerMessage.messageType === "answer")
+      onAnswer(JSON.parse(peerMessage.message));
+    else if (peerMessage.messageType === "iceCandidate")
+      onPeerIceCandidate(JSON.parse(peerMessage.message));
+    else console.error("Invalid peer message type.");
+  };
+
+  const sendPeerMessage = (
+    peerConnectionId: string,
+    messageType: peerMessageType,
+    message: string
   ) => {
-    // console.log(JSON.stringify(peer.localDescription));
-    getOtherPeer(peer)
-      ?.addIceCandidate(iceEvent.candidate!)
-      .then(() =>
-        console.log(
-          `Added ICE candidate to ${getPeerName(
-            getOtherPeer(peer)!
-          )} connection`
-        )
-      )
+    let messageBody = JSON.stringify({
+      action: "peermessage",
+      peerConnectionId: peerConnectionId,
+      messageType: messageType,
+      message: message,
+    });
+    console.log(messageBody);
+    webSocket.current?.send(messageBody);
+  };
+
+  const onPeerIceCandidate = (iceCandidate: RTCIceCandidate) => {
+    localConnection
+      ?.addIceCandidate(iceCandidate)
+      .then(() => console.log("Successfully added peer ICE candidate"))
       .catch((err) =>
-        console.error(
-          `Could not add ICE candidate to ${getPeerName(
-            getOtherPeer(peer)!
-          )} connection because of error. ${err}`
-        )
+        console.error(`Could not add peer ICE candidate. ${err}`)
       );
   };
 
-  const onOfferSuccess = (sessionDescription: RTCSessionDescriptionInit) => {
+  const sendOffer = (sessionDescription: RTCSessionDescriptionInit) => {
     localConnection
       ?.setLocalDescription(sessionDescription)
       .then(() =>
@@ -63,41 +133,70 @@ function App() {
         console.error(`Failed to set session description. ${err}`)
       );
 
-    remoteConnection
+    // Send offer to remote peer
+    sendPeerMessage(
+      remoteConnectionId,
+      "offer",
+      JSON.stringify(sessionDescription)
+    );
+  };
+
+  const onOffer = (
+    sessionDescription: RTCSessionDescriptionInit,
+    peerConnectionId: string
+  ) => {
+    localConnection
       ?.setRemoteDescription(sessionDescription)
       .then(() => {
-        console.log("setLocalDescription complete for local from remote");
-        createRemoteAnswer();
+        console.log("setLocalDescription complete for remote from local");
+        buildAnswer(peerConnectionId);
       })
       .catch((err) =>
         console.error(`Failed to set session description. ${err}`)
       );
   };
 
-  const createRemoteAnswer = () => {
-    remoteConnection?.createAnswer().then((sessionDescription) => {
-      // console.log(`Answer from remote connection. ${desc.sdp}`);
-      remoteConnection
-        .setLocalDescription(sessionDescription)
-        .then(() =>
-          console.log("setLocalDescription complete for remote from remote")
-        )
-        .catch((err) =>
-          console.error(`Failed to set session description. ${err}`)
-        );
+  const buildAnswer = (peerConnectionId: string) => {
+    localConnection!.onicecandidate = (iceEvent) => {
+      sendPeerMessage(
+        peerConnectionId,
+        "iceCandidate",
+        JSON.stringify(iceEvent.candidate)
+      );
+    };
 
-      localConnection
-        ?.setRemoteDescription(sessionDescription)
-        .then(() =>
-          console.log("setLocalDescription complete for remote from local")
-        )
-        .catch((err) =>
-          console.error(`Failed to set session description. ${err}`)
-        );
-    });
+    localConnection
+      ?.createAnswer()
+      .then((sessionDescription) => {
+        localConnection
+          .setLocalDescription(sessionDescription)
+          .then(() => {
+            console.log("setLocalDescription complete for local from local");
+            sendPeerMessage(
+              peerConnectionId,
+              "answer",
+              JSON.stringify(sessionDescription)
+            );
+          })
+          .catch((err) =>
+            console.error(`Failed to set session description. ${err}`)
+          );
+      })
+      .catch((err) => console.error(`Failed to send answer. ${err}`));
   };
 
-  const gotRemoteStream = (trackEvent: RTCTrackEvent) => {
+  const onAnswer = (sessionDescription: RTCSessionDescriptionInit) => {
+    localConnection
+      ?.setRemoteDescription(sessionDescription)
+      .then(() =>
+        console.log("setLocalDescription complete for remote from local")
+      )
+      .catch((err) =>
+        console.error(`Failed to set session description. ${err}`)
+      );
+  };
+
+  const onPeerStream = (trackEvent: RTCTrackEvent) => {
     console.log(trackEvent.streams);
     trackEvent.streams.forEach((s) => console.log(s));
     if (remoteStream !== trackEvent.streams[0]) {
@@ -106,18 +205,21 @@ function App() {
     }
   };
 
-  const connectToPeer = () => {
+  const openConnection = () => {
+    setSocketConnected(true);
     console.log("Connecting to peer...");
-    setLocalConnection(new RTCPeerConnection({}));
-    setRemoteConnection(new RTCPeerConnection({}));
 
-    localConnection?.addEventListener("icecandidate", (ev) =>
-      onicecandidate(localConnection, ev)
+    localConnection!.onicecandidate = (iceEvent) => {
+      sendPeerMessage(
+        remoteConnectionId,
+        "iceCandidate",
+        JSON.stringify(iceEvent.candidate)
+      );
+    };
+
+    localConnection?.addEventListener("track", (trackEvent) =>
+      onPeerStream(trackEvent)
     );
-    remoteConnection?.addEventListener("icecandidate", (ev) =>
-      onicecandidate(remoteConnection, ev)
-    );
-    remoteConnection?.addEventListener("track", (ev) => gotRemoteStream(ev));
 
     localStream?.getTracks().forEach((track) => {
       console.log(track);
@@ -125,17 +227,11 @@ function App() {
     });
 
     // let dataChannel = localConnection.createDataChannel("dataChannel");
+  };
 
-    const offerOptions = {
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: true,
-    };
-
-    localConnection?.createOffer(offerOptions).then(
-      (localSessionDescription) => {
-        // console.log(`Offer from local connection ${value.sdp}`);
-        onOfferSuccess(localSessionDescription);
-      },
+  const callPeer = () => {
+    localConnection?.createOffer(connectionOptions).then(
+      (localSessionDescription) => sendOffer(localSessionDescription),
       (reason) =>
         console.error(`Failed to create session description: ${reason}`)
     );
@@ -144,9 +240,32 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <button type="button" disabled={!localStream} onClick={connectToPeer}>
-          Connect to "remote" peer
+        <input
+          type="text"
+          value={remoteConnectionId}
+          onChange={(event) => setRemoteConnectionId(event.target.value)}
+        />
+        <button
+          type="button"
+          disabled={!localStream || socketConnected}
+          onClick={() => openConnection()}
+        >
+          Open connection
         </button>
+        <button
+          type="button"
+          disabled={!localConnection || !socketConnected}
+          onClick={() => callPeer()}
+        >
+          Call peer
+        </button>
+        {/*<button
+          type="button"
+          disabled={!localConnection || !socketConnected || !remoteConnectionId}
+          onClick={() => buildAnswer(remoteConnectionId)}
+        >
+          Answer peer
+        </button>*/}
         <div style={{ display: "flex" }}>
           <div style={{ flex: 1 }}>
             {localStream ? (
