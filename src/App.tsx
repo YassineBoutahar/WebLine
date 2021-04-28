@@ -34,7 +34,6 @@ const connectionOptions = {
 function App() {
   const [localStream, setLocalStream] = useState<MediaStream>();
   const [remoteStream, setRemoteStream] = useState<MediaStream>();
-  const [localConnectionId, setLocalConnectionId] = useState<string>();
   const [remoteConnectionId, setRemoteConnectionId] = useState<string>("");
   const [localConnection, setLocalConnection] = useState<RTCPeerConnection>();
   const [socketConnected, setSocketConnected] = useState<boolean>(false);
@@ -80,11 +79,12 @@ function App() {
       let response = JSON.parse(messageEvent.data);
       console.log(response);
       if (response.responseType === "defaultStatus") {
-        setLocalConnectionId(response.connectionId);
+        // setLocalConnectionId(response.connectionId);
       } else if (response.responseType === "peerMessage") {
         handlePeerMessage(response);
       }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socketConnected]);
 
   const handlePeerMessage = (peerMessage: peerMessage) => {
@@ -114,13 +114,16 @@ function App() {
     webSocket.current?.send(messageBody);
   };
 
-  const onPeerIceCandidate = (iceCandidate: RTCIceCandidate) => {
+  const onPeerIceCandidate = (iceCandidate: RTCIceCandidate, attempt: number = 0) => {
+    if(attempt > 0) console.log("Retrying ice candidate... Attempt " + attempt);
     localConnection
       ?.addIceCandidate(iceCandidate)
       .then(() => console.log("Successfully added peer ICE candidate"))
-      .catch((err) =>
-        console.error(`Could not add peer ICE candidate. ${err}`)
-      );
+      .catch(async (err) => {
+        console.error(`Could not add peer ICE candidate. ${err}`);
+        // Retry up to two times
+        if(attempt <= 2) setTimeout(() => onPeerIceCandidate(iceCandidate, attempt+1), 2000);
+      });
   };
 
   const sendOffer = (sessionDescription: RTCSessionDescriptionInit) => {
@@ -199,9 +202,11 @@ function App() {
   const onPeerStream = (trackEvent: RTCTrackEvent) => {
     console.log(trackEvent.streams);
     trackEvent.streams.forEach((s) => console.log(s));
-    if (remoteStream !== trackEvent.streams[0]) {
-      setRemoteStream(trackEvent.streams[0]);
-      console.log("Receieved remote stream!");
+    trackEvent.track.onunmute = () => {
+      if (remoteStream !== trackEvent.streams[0]) {
+        setRemoteStream(trackEvent.streams[0]);
+        console.log("Receieved remote stream!");
+      }
     }
   };
 
