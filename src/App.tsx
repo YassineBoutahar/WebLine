@@ -90,9 +90,13 @@ function App() {
   const handlePeerMessage = (peerMessage: peerMessage) => {
     console.log(peerMessage);
     setRemoteConnectionId(peerMessage.senderConnectionId);
-    if (peerMessage.messageType === "offer")
+    if (peerMessage.messageType === "offer") {
+      localStream?.getTracks().forEach((track) => {
+        console.log(track);
+        localConnection?.addTrack(track, localStream);
+      });
       onOffer(JSON.parse(peerMessage.message), peerMessage.senderConnectionId);
-    else if (peerMessage.messageType === "answer")
+    } else if (peerMessage.messageType === "answer")
       onAnswer(JSON.parse(peerMessage.message));
     else if (peerMessage.messageType === "iceCandidate")
       onPeerIceCandidate(JSON.parse(peerMessage.message));
@@ -114,34 +118,38 @@ function App() {
     webSocket.current?.send(messageBody);
   };
 
-  const onPeerIceCandidate = (iceCandidate: RTCIceCandidate, attempt: number = 0) => {
-    if(attempt > 0) console.log("Retrying ice candidate... Attempt " + attempt);
+  const onPeerIceCandidate = (
+    iceCandidate: RTCIceCandidate,
+    attempt: number = 0
+  ) => {
+    if (attempt > 0)
+      console.log("Retrying ice candidate... Attempt " + attempt);
     localConnection
       ?.addIceCandidate(iceCandidate)
       .then(() => console.log("Successfully added peer ICE candidate"))
       .catch(async (err) => {
         console.error(`Could not add peer ICE candidate. ${err}`);
         // Retry up to two times
-        if(attempt <= 2) setTimeout(() => onPeerIceCandidate(iceCandidate, attempt+1), 2000);
+        if (attempt <= 2)
+          setTimeout(() => onPeerIceCandidate(iceCandidate, attempt + 1), 2000);
       });
   };
 
   const sendOffer = (sessionDescription: RTCSessionDescriptionInit) => {
     localConnection
       ?.setLocalDescription(sessionDescription)
-      .then(() =>
-        console.log("setLocalDescription complete for local from local")
-      )
+      .then(() => {
+        console.log("setLocalDescription complete for local from local");
+        // Send offer to remote peer
+        sendPeerMessage(
+          remoteConnectionId,
+          "offer",
+          JSON.stringify(sessionDescription)
+        );
+      })
       .catch((err) =>
         console.error(`Failed to set session description. ${err}`)
       );
-
-    // Send offer to remote peer
-    sendPeerMessage(
-      remoteConnectionId,
-      "offer",
-      JSON.stringify(sessionDescription)
-    );
   };
 
   const onOffer = (
@@ -207,14 +215,15 @@ function App() {
         setRemoteStream(trackEvent.streams[0]);
         console.log("Receieved remote stream!");
       }
-    }
+    };
   };
 
   const openConnection = () => {
+    if (!localConnection) return;
     setSocketConnected(true);
     console.log("Connecting to peer...");
 
-    localConnection!.onicecandidate = (iceEvent) => {
+    localConnection.onicecandidate = (iceEvent) => {
       sendPeerMessage(
         remoteConnectionId,
         "iceCandidate",
@@ -222,24 +231,25 @@ function App() {
       );
     };
 
-    localConnection?.addEventListener("track", (trackEvent) =>
-      onPeerStream(trackEvent)
-    );
+    localConnection.ontrack = (trackEvent) => onPeerStream(trackEvent);
 
-    localStream?.getTracks().forEach((track) => {
-      console.log(track);
-      localConnection?.addTrack(track, localStream);
-    });
+    localConnection.onnegotiationneeded = async () => {
+      const localSessionDescription = await localConnection.createOffer(
+        connectionOptions
+      );
+      if (localConnection.signalingState !== "stable") return;
+      sendOffer(localSessionDescription);
+    };
 
     // let dataChannel = localConnection.createDataChannel("dataChannel");
   };
 
   const callPeer = () => {
-    localConnection?.createOffer(connectionOptions).then(
-      (localSessionDescription) => sendOffer(localSessionDescription),
-      (reason) =>
-        console.error(`Failed to create session description: ${reason}`)
-    );
+    // Should trigger on negotiation neeeded
+    localStream?.getTracks().forEach((track) => {
+      console.log(track);
+      localConnection?.addTrack(track, localStream);
+    });
   };
 
   return (
