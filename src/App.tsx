@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 // Reference: https://github.com/webrtc/samples/blob/gh-pages/src/content/peerconnection/pc1/js/main.js
 import React, { useEffect, useRef, useState } from "react";
 import "./App.css";
@@ -35,8 +36,10 @@ function App() {
   const [localStream, setLocalStream] = useState<MediaStream>();
   const [remoteStream, setRemoteStream] = useState<MediaStream>();
   const [remoteConnectionId, setRemoteConnectionId] = useState<string>("");
-  const [localConnection, setLocalConnection] = useState<RTCPeerConnection>();
-  const [socketConnected, setSocketConnected] = useState<boolean>(false);
+  const [inCall, setInCall] = useState<boolean>(false);
+  const localConnection = useRef<RTCPeerConnection>(
+    new RTCPeerConnection(configuration)
+  );
   const webSocket = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -55,15 +58,19 @@ function App() {
   }, [localStream]);
 
   useEffect(() => {
-    let local = new RTCPeerConnection(configuration);
-    setLocalConnection(local);
-    webSocket.current = new WebSocket(socketUrl);
+    localConnection.current.oniceconnectionstatechange = (ev) =>
+      console.log(ev);
+    localConnection.current.onicecandidateerror = (err) => console.error(err);
+    localConnection.current.ontrack = (trackEvent) => onPeerStream(trackEvent);
+    updateListeners();
 
+    // let dataChannel = localConnection.createDataChannel("dataChannel");
+
+    webSocket.current = new WebSocket(socketUrl);
     webSocket.current.addEventListener("open", (_ev) => {
       console.log("Socket connection opened.");
       webSocket.current?.send("");
     });
-
     webSocket.current.addEventListener("close", (_ev) => {
       console.log("Socket connection closed.");
     });
@@ -72,20 +79,38 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!webSocket.current) return;
+    if (localConnection.current) updateListeners();
 
-    webSocket.current.addEventListener("message", (messageEvent) => {
-      if (!messageEvent.data) return;
-      let response = JSON.parse(messageEvent.data);
-      console.log(response);
-      if (response.responseType === "defaultStatus") {
-        // setLocalConnectionId(response.connectionId);
-      } else if (response.responseType === "peerMessage") {
-        handlePeerMessage(response);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socketConnected]);
+    if (webSocket.current) {
+      webSocket.current.addEventListener("message", (messageEvent) => {
+        if (!messageEvent.data) return;
+        let response = JSON.parse(messageEvent.data);
+        console.log(response);
+        if (response.responseType === "defaultStatus") {
+          // setLocalConnectionId(response.connectionId);
+        } else if (response.responseType === "peerMessage") {
+          handlePeerMessage(response);
+        }
+      });
+    }
+  }, [remoteConnectionId]);
+
+  const updateListeners = () => {
+    localConnection.current.onicecandidate = (iceEvent) => {
+      sendPeerMessage(
+        remoteConnectionId,
+        "iceCandidate",
+        JSON.stringify(iceEvent.candidate)
+      );
+    };
+    localConnection.current.onnegotiationneeded = async () => {
+      const localSessionDescription = await localConnection.current.createOffer(
+        connectionOptions
+      );
+      if (localConnection.current.signalingState !== "stable") return;
+      sendOffer(localSessionDescription);
+    };
+  };
 
   const handlePeerMessage = (peerMessage: peerMessage) => {
     console.log(peerMessage);
@@ -121,7 +146,7 @@ function App() {
     if (attempt > 0)
       console.log("Retrying ice candidate... Attempt " + attempt);
     localConnection
-      ?.addIceCandidate(iceCandidate)
+      .current.addIceCandidate(iceCandidate)
       .then(() => console.log("Successfully added peer ICE candidate"))
       .catch(async (err) => {
         console.error(`Could not add peer ICE candidate. ${err}`);
@@ -132,8 +157,9 @@ function App() {
   };
 
   const sendOffer = (sessionDescription: RTCSessionDescriptionInit) => {
+    setInCall(true);
     localConnection
-      ?.setLocalDescription(sessionDescription)
+      .current.setLocalDescription(sessionDescription)
       .then(() => {
         console.log("setLocalDescription complete for local from local");
         // Send offer to remote peer
@@ -152,13 +178,14 @@ function App() {
     sessionDescription: RTCSessionDescriptionInit,
     peerConnectionId: string
   ) => {
+    setInCall(true);
     localConnection
-      ?.setRemoteDescription(sessionDescription)
+      .current.setRemoteDescription(sessionDescription)
       .then(() => {
         console.log("setLocalDescription complete for remote from local");
         localStream?.getTracks().forEach((track) => {
           console.log(track);
-          localConnection?.addTrack(track, localStream);
+          localConnection.current.addTrack(track, localStream);
         });
         buildAnswer(peerConnectionId);
       })
@@ -168,7 +195,7 @@ function App() {
   };
 
   const buildAnswer = (peerConnectionId: string) => {
-    localConnection!.onicecandidate = (iceEvent) => {
+    localConnection.current.onicecandidate = (iceEvent) => {
       sendPeerMessage(
         peerConnectionId,
         "iceCandidate",
@@ -177,10 +204,10 @@ function App() {
     };
 
     localConnection
-      ?.createAnswer()
+      .current.createAnswer()
       .then((sessionDescription) => {
         localConnection
-          .setLocalDescription(sessionDescription)
+          .current.setLocalDescription(sessionDescription)
           .then(() => {
             console.log("setLocalDescription complete for local from local");
             sendPeerMessage(
@@ -198,7 +225,7 @@ function App() {
 
   const onAnswer = (sessionDescription: RTCSessionDescriptionInit) => {
     localConnection
-      ?.setRemoteDescription(sessionDescription)
+      .current.setRemoteDescription(sessionDescription)
       .then(() =>
         console.log("setLocalDescription complete for remote from local")
       )
@@ -218,40 +245,16 @@ function App() {
     };
   };
 
-  const openConnection = () => {
-    if (!localConnection) return;
-    setSocketConnected(true);
-    console.log("Connecting to peer...");
-
-    localConnection.onicecandidate = (iceEvent) => {
-      sendPeerMessage(
-        remoteConnectionId,
-        "iceCandidate",
-        JSON.stringify(iceEvent.candidate)
-      );
-    };
-
-    localConnection.oniceconnectionstatechange = (ev) => console.log(ev);
-    localConnection.onicecandidateerror = (err) => console.error(err);
-
-    localConnection.ontrack = (trackEvent) => onPeerStream(trackEvent);
-
-    localConnection.onnegotiationneeded = async () => {
-      const localSessionDescription = await localConnection.createOffer(
-        connectionOptions
-      );
-      if (localConnection.signalingState !== "stable") return;
-      sendOffer(localSessionDescription);
-    };
-
-    // let dataChannel = localConnection.createDataChannel("dataChannel");
-  };
-
   const callPeer = () => {
+    if (!localConnection.current) {
+      console.error("Local peer connection not yet set up!");
+      return;
+    }
+
     // Should trigger on negotiation neeeded
     localStream?.getTracks().forEach((track) => {
       console.log(track);
-      localConnection?.addTrack(track, localStream);
+      localConnection.current.addTrack(track, localStream);
     });
   };
 
@@ -265,14 +268,12 @@ function App() {
         />
         <button
           type="button"
-          disabled={!localStream || socketConnected}
-          onClick={() => openConnection()}
-        >
-          Open connection
-        </button>
-        <button
-          type="button"
-          disabled={!localConnection || !socketConnected}
+          disabled={
+            !localConnection.current ||
+            !webSocket.current ||
+            !remoteConnectionId ||
+            inCall
+          }
           onClick={() => callPeer()}
         >
           Call peer
