@@ -115,13 +115,22 @@ function App() {
   const handlePeerMessage = (peerMessage: peerMessage) => {
     console.log(peerMessage);
     setRemoteConnectionId(peerMessage.senderConnectionId);
-    if (peerMessage.messageType === "offer") {
-      onOffer(JSON.parse(peerMessage.message), peerMessage.senderConnectionId);
-    } else if (peerMessage.messageType === "answer")
-      onAnswer(JSON.parse(peerMessage.message));
-    else if (peerMessage.messageType === "iceCandidate")
-      onPeerIceCandidate(JSON.parse(peerMessage.message));
-    else console.error("Invalid peer message type.");
+    switch (peerMessage.messageType) {
+      case "offer":
+        onOffer(
+          JSON.parse(peerMessage.message),
+          peerMessage.senderConnectionId
+        );
+        break;
+      case "answer":
+        onAnswer(JSON.parse(peerMessage.message));
+        break;
+      case "iceCandidate":
+        onPeerIceCandidate(JSON.parse(peerMessage.message));
+        break;
+      default:
+        console.error("Invalid peer message type.");
+    }
   };
 
   const sendPeerMessage = (
@@ -145,8 +154,8 @@ function App() {
   ) => {
     if (attempt > 0)
       console.log("Retrying ice candidate... Attempt " + attempt);
-    localConnection
-      .current.addIceCandidate(iceCandidate)
+    localConnection.current
+      .addIceCandidate(iceCandidate)
       .then(() => console.log("Successfully added peer ICE candidate"))
       .catch(async (err) => {
         console.error(`Could not add peer ICE candidate. ${err}`);
@@ -158,8 +167,8 @@ function App() {
 
   const sendOffer = (sessionDescription: RTCSessionDescriptionInit) => {
     setInCall(true);
-    localConnection
-      .current.setLocalDescription(sessionDescription)
+    localConnection.current
+      .setLocalDescription(sessionDescription)
       .then(() => {
         console.log("setLocalDescription complete for local from local");
         // Send offer to remote peer
@@ -179,8 +188,8 @@ function App() {
     peerConnectionId: string
   ) => {
     setInCall(true);
-    localConnection
-      .current.setRemoteDescription(sessionDescription)
+    localConnection.current
+      .setRemoteDescription(sessionDescription)
       .then(() => {
         console.log("setLocalDescription complete for remote from local");
         localStream?.getTracks().forEach((track) => {
@@ -203,11 +212,11 @@ function App() {
       );
     };
 
-    localConnection
-      .current.createAnswer()
+    localConnection.current
+      .createAnswer()
       .then((sessionDescription) => {
-        localConnection
-          .current.setLocalDescription(sessionDescription)
+        localConnection.current
+          .setLocalDescription(sessionDescription)
           .then(() => {
             console.log("setLocalDescription complete for local from local");
             sendPeerMessage(
@@ -224,8 +233,8 @@ function App() {
   };
 
   const onAnswer = (sessionDescription: RTCSessionDescriptionInit) => {
-    localConnection
-      .current.setRemoteDescription(sessionDescription)
+    localConnection.current
+      .setRemoteDescription(sessionDescription)
       .then(() =>
         console.log("setLocalDescription complete for remote from local")
       )
