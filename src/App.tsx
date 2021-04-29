@@ -58,13 +58,7 @@ function App() {
   }, [localStream]);
 
   useEffect(() => {
-    localConnection.current.oniceconnectionstatechange = (ev) =>
-      console.log(ev);
-    localConnection.current.onicecandidateerror = (err) => console.error(err);
-    localConnection.current.ontrack = (trackEvent) => onPeerStream(trackEvent);
-    updateListeners();
-
-    // let dataChannel = localConnection.createDataChannel("dataChannel");
+    setUpLocalConnection();
 
     webSocket.current = new WebSocket(socketUrl);
     webSocket.current.addEventListener("open", (_ev) => {
@@ -110,6 +104,19 @@ function App() {
       if (localConnection.current.signalingState !== "stable") return;
       sendOffer(localSessionDescription);
     };
+  };
+
+  const setUpLocalConnection = () => {
+    localConnection.current.oniceconnectionstatechange = (ev) =>
+      console.log(ev);
+    localConnection.current.onicecandidateerror = (err) => console.error(err);
+    localConnection.current.ontrack = (trackEvent) => onPeerStream(trackEvent);
+    localConnection.current.onconnectionstatechange = (_ev) => {
+      if (localConnection.current.connectionState === "disconnected") hangUp();
+    };
+    updateListeners();
+
+    // let dataChannel = localConnection.createDataChannel("dataChannel");
   };
 
   const handlePeerMessage = (peerMessage: peerMessage) => {
@@ -267,6 +274,13 @@ function App() {
     });
   };
 
+  const hangUp = () => {
+    setInCall(false);
+    localConnection.current.close();
+    localConnection.current = new RTCPeerConnection(configuration);
+    setUpLocalConnection();
+  };
+
   return (
     <div className="App">
       <header className="App-header">
@@ -287,6 +301,13 @@ function App() {
         >
           Call peer
         </button>
+        <button
+          type="button"
+          disabled={!localConnection.current || !inCall}
+          onClick={() => hangUp()}
+        >
+          Hang up
+        </button>
         {/*<button
           type="button"
           disabled={!localConnection || !socketConnected || !remoteConnectionId}
@@ -302,13 +323,11 @@ function App() {
               <h4>Please enable your camera</h4>
             )}
           </div>
-          <div style={{ flex: 1 }}>
-            {remoteStream ? (
+          {remoteStream && inCall && (
+            <div style={{ flex: 1 }}>
               <VideoStream srcObject={remoteStream} />
-            ) : (
-              <h4>No connection</h4>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </header>
     </div>
