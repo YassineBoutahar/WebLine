@@ -43,7 +43,7 @@ function App() {
     // https://blog.logrocket.com/responsive-camera-component-react-hooks/
     if (!localStream) {
       navigator.mediaDevices
-        .getUserMedia({ audio: true, video: { facingMode: "environment" } })
+        .getUserMedia({ audio: true, video: true })
         .then((s) => setLocalStream(s))
         .catch((err) => console.log(err));
     } else {
@@ -91,10 +91,6 @@ function App() {
     console.log(peerMessage);
     setRemoteConnectionId(peerMessage.senderConnectionId);
     if (peerMessage.messageType === "offer") {
-      localStream?.getTracks().forEach((track) => {
-        console.log(track);
-        localConnection?.addTrack(track, localStream);
-      });
       onOffer(JSON.parse(peerMessage.message), peerMessage.senderConnectionId);
     } else if (peerMessage.messageType === "answer")
       onAnswer(JSON.parse(peerMessage.message));
@@ -130,7 +126,7 @@ function App() {
       .catch(async (err) => {
         console.error(`Could not add peer ICE candidate. ${err}`);
         // Retry up to two times
-        if (attempt <= 2)
+        if (attempt < 2)
           setTimeout(() => onPeerIceCandidate(iceCandidate, attempt + 1), 2000);
       });
   };
@@ -160,6 +156,10 @@ function App() {
       ?.setRemoteDescription(sessionDescription)
       .then(() => {
         console.log("setLocalDescription complete for remote from local");
+        localStream?.getTracks().forEach((track) => {
+          console.log(track);
+          localConnection?.addTrack(track, localStream);
+        });
         buildAnswer(peerConnectionId);
       })
       .catch((err) =>
@@ -230,6 +230,9 @@ function App() {
         JSON.stringify(iceEvent.candidate)
       );
     };
+
+    localConnection.oniceconnectionstatechange = (ev) => console.log(ev);
+    localConnection.onicecandidateerror = (err) => console.error(err);
 
     localConnection.ontrack = (trackEvent) => onPeerStream(trackEvent);
 
