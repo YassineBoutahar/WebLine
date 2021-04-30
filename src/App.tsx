@@ -6,7 +6,13 @@ import VideoStream from "./VideoStream";
 
 const socketUrl = "mywebsocketserver";
 
-type peerMessageType = "offer" | "answer" | "iceCandidate";
+type peerMessageType =
+  | "offer"
+  | "answer"
+  | "iceCandidate"
+  | "callRequest"
+  | "callAccept"
+  | "callReject";
 
 type peerMessage = {
   senderConnectionId: string;
@@ -36,11 +42,13 @@ function App() {
   const [localStream, setLocalStream] = useState<MediaStream>();
   const [remoteStream, setRemoteStream] = useState<MediaStream>();
   const [remoteConnectionId, setRemoteConnectionId] = useState<string>("");
+  const [calling, setCalling] = useState<boolean>(false);
   const [inCall, setInCall] = useState<boolean>(false);
   const localConnection = useRef<RTCPeerConnection>(
     new RTCPeerConnection(configuration)
   );
   const webSocket = useRef<WebSocket | null>(null);
+  const lastPeerMessage = useRef<string>("");
 
   useEffect(() => {
     // https://blog.logrocket.com/responsive-camera-component-react-hooks/
@@ -77,7 +85,10 @@ function App() {
 
     if (webSocket.current) {
       webSocket.current.addEventListener("message", (messageEvent) => {
-        if (!messageEvent.data) return;
+        // To avoid re-handling messages sent by potential duplicate lambda invocations
+        if (!messageEvent.data || messageEvent.data === lastPeerMessage.current)
+          return;
+        lastPeerMessage.current = messageEvent.data;
         let response = JSON.parse(messageEvent.data);
         console.log(response);
         if (response.responseType === "defaultStatus") {
@@ -120,20 +131,37 @@ function App() {
   };
 
   const handlePeerMessage = (peerMessage: peerMessage) => {
-    console.log(peerMessage);
-    setRemoteConnectionId(peerMessage.senderConnectionId);
+    let senderConnectionId = peerMessage.senderConnectionId;
+    setRemoteConnectionId(senderConnectionId);
     switch (peerMessage.messageType) {
       case "offer":
-        onOffer(
-          JSON.parse(peerMessage.message),
-          peerMessage.senderConnectionId
-        );
+        onOffer(JSON.parse(peerMessage.message), senderConnectionId);
         break;
       case "answer":
         onAnswer(JSON.parse(peerMessage.message));
         break;
       case "iceCandidate":
         onPeerIceCandidate(JSON.parse(peerMessage.message));
+        break;
+      case "callRequest":
+        let userCallAccepted = window.confirm(
+          `Accept call from ${senderConnectionId}?`
+        );
+        if (userCallAccepted) {
+          sendPeerMessage(senderConnectionId, "callAccept", " ");
+          setInCall(true);
+        } else {
+          sendPeerMessage(senderConnectionId, "callReject", " ");
+          setRemoteConnectionId("");
+        }
+        break;
+      case "callAccept":
+        if (!calling) return;
+        callPeer();
+        break;
+      case "callReject":
+        setCalling(false);
+        alert(`${senderConnectionId} rejected the call.`);
         break;
       default:
         console.error("Invalid peer message type.");
@@ -261,12 +289,14 @@ function App() {
     };
   };
 
-  const callPeer = () => {
-    if (!localConnection.current) {
-      console.error("Local peer connection not yet set up!");
-      return;
-    }
+  const callRequest = () => {
+    setCalling(true);
+    sendPeerMessage(remoteConnectionId, "callRequest", " ");
+  };
 
+  const callPeer = () => {
+    setInCall(true);
+    setCalling(false);
     // Should trigger on negotiation neeeded
     localStream?.getTracks().forEach((track) => {
       console.log(track);
@@ -286,6 +316,7 @@ function App() {
       <header className="App-header">
         <input
           type="text"
+          disabled={calling}
           value={remoteConnectionId}
           onChange={(event) => setRemoteConnectionId(event.target.value)}
         />
@@ -295,9 +326,10 @@ function App() {
             !localConnection.current ||
             !webSocket.current ||
             !remoteConnectionId ||
+            calling ||
             inCall
           }
-          onClick={() => callPeer()}
+          onClick={() => callRequest()}
         >
           Call peer
         </button>
