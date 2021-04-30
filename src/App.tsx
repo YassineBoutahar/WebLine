@@ -47,11 +47,18 @@ function App() {
   const [username, setUsername] = useState<string>("");
   const [calling, setCalling] = useState<boolean>(false);
   const [inCall, setInCall] = useState<boolean>(false);
+  const [debugLogs, setDebugLogs] = useState<boolean>(false);
   const localConnection = useRef<RTCPeerConnection>(
     new RTCPeerConnection(configuration)
   );
   const webSocket = useRef<WebSocket | null>(null);
   const lastPeerMessage = useRef<string>("");
+
+  const consoleDebug = (message: any, error = false) => {
+    if(!debugLogs && (!window.console || !console)) return;
+    if(error) console.error(message);
+    else console.log(message);
+  }
 
   useEffect(() => {
     // https://blog.logrocket.com/responsive-camera-component-react-hooks/
@@ -59,7 +66,7 @@ function App() {
       navigator.mediaDevices
         .getUserMedia({ audio: true, video: true })
         .then((s) => setLocalStream(s))
-        .catch((err) => console.log(err));
+        .catch((err) => consoleDebug(err));
     } else {
       return () =>
         localStream.getTracks().forEach((track) => {
@@ -75,7 +82,7 @@ function App() {
 
     webSocket.current = new WebSocket(socketUrl);
     webSocket.current.addEventListener("open", (_ev) => {
-      console.log("Socket connection opened.");
+      consoleDebug("Socket connection opened.");
       webSocket.current?.send("");
       webSocket.current!.send(
         JSON.stringify({
@@ -85,7 +92,7 @@ function App() {
       );
     });
     webSocket.current.addEventListener("close", (_ev) => {
-      console.log("Socket connection closed.");
+      consoleDebug("Socket connection closed.");
     });
 
     return () => webSocket.current?.close();
@@ -106,7 +113,7 @@ function App() {
         }
 
         let response = JSON.parse(messageEvent.data);
-        console.log(response);
+        consoleDebug(response);
         switch (response.responseType) {
           case "defaultStatus":
             break;
@@ -126,8 +133,8 @@ function App() {
             );
             break;
           default:
-            console.error(
-              `Unknown socket message type ${response.responseType}`
+            consoleDebug(
+              `Unknown socket message type ${response.responseType}`, true
             );
         }
       });
@@ -153,8 +160,8 @@ function App() {
 
   const setUpLocalConnection = () => {
     localConnection.current.oniceconnectionstatechange = (ev) =>
-      console.log(ev);
-    localConnection.current.onicecandidateerror = (err) => console.error(err);
+      consoleDebug(ev);
+    localConnection.current.onicecandidateerror = (err) => consoleDebug(err, true);
     localConnection.current.ontrack = (trackEvent) => onPeerStream(trackEvent);
     localConnection.current.onconnectionstatechange = (_ev) => {
       if (localConnection.current.connectionState === "disconnected") hangUp();
@@ -198,7 +205,7 @@ function App() {
         alert(`${senderConnectionId} rejected the call.`);
         break;
       default:
-        console.error("Invalid peer message type.");
+        consoleDebug("Invalid peer message type.", true);
     }
   };
 
@@ -213,7 +220,7 @@ function App() {
       messageType: messageType,
       message: message,
     });
-    console.log(messageBody);
+    consoleDebug(messageBody);
     webSocket.current?.send(messageBody);
   };
 
@@ -222,12 +229,12 @@ function App() {
     attempt: number = 0
   ) => {
     if (attempt > 0)
-      console.log("Retrying ice candidate... Attempt " + attempt);
+      consoleDebug("Retrying ice candidate... Attempt " + attempt);
     localConnection.current
       .addIceCandidate(iceCandidate)
-      .then(() => console.log("Successfully added peer ICE candidate"))
+      .then(() => consoleDebug("Successfully added peer ICE candidate"))
       .catch(async (err) => {
-        console.error(`Could not add peer ICE candidate. ${err}`);
+        consoleDebug(`Could not add peer ICE candidate. ${err}`, true);
         // Retry up to two times
         if (attempt < 2)
           setTimeout(() => onPeerIceCandidate(iceCandidate, attempt + 1), 2000);
@@ -239,7 +246,7 @@ function App() {
     localConnection.current
       .setLocalDescription(sessionDescription)
       .then(() => {
-        console.log("setLocalDescription complete for local from local");
+        consoleDebug("setLocalDescription complete for local from local");
         // Send offer to remote peer
         sendPeerMessage(
           remoteConnectionId,
@@ -248,7 +255,7 @@ function App() {
         );
       })
       .catch((err) =>
-        console.error(`Failed to set session description. ${err}`)
+        consoleDebug(`Failed to set session description. ${err}`, true)
       );
   };
 
@@ -260,19 +267,19 @@ function App() {
     localConnection.current
       .setRemoteDescription(sessionDescription)
       .then(() => {
-        console.log("setLocalDescription complete for remote from local");
+        consoleDebug("setLocalDescription complete for remote from local");
         localStream?.getTracks().forEach((track) => {
-          console.log(track);
+          consoleDebug(track);
           try {
             localConnection.current.addTrack(track, localStream);
           } catch (err) {
-            console.log(`Could not add track. ${err}`);
+            consoleDebug(`Could not add track. ${err}`);
           }
         });
         buildAnswer(peerConnectionId);
       })
       .catch((err) =>
-        console.error(`Failed to set session description. ${err}`)
+        consoleDebug(`Failed to set session description. ${err}`, true)
       );
   };
 
@@ -291,7 +298,7 @@ function App() {
         localConnection.current
           .setLocalDescription(sessionDescription)
           .then(() => {
-            console.log("setLocalDescription complete for local from local");
+            consoleDebug("setLocalDescription complete for local from local");
             sendPeerMessage(
               peerConnectionId,
               "answer",
@@ -299,30 +306,30 @@ function App() {
             );
           })
           .catch((err) =>
-            console.error(`Failed to set session description. ${err}`)
+            consoleDebug(`Failed to set session description. ${err}`, true)
           );
       })
-      .catch((err) => console.error(`Failed to send answer. ${err}`));
+      .catch((err) => consoleDebug(`Failed to send answer. ${err}`, true));
   };
 
   const onAnswer = (sessionDescription: RTCSessionDescriptionInit) => {
     localConnection.current
       .setRemoteDescription(sessionDescription)
       .then(() =>
-        console.log("setLocalDescription complete for remote from local")
+        consoleDebug("setLocalDescription complete for remote from local")
       )
       .catch((err) =>
-        console.error(`Failed to set session description. ${err}`)
+        consoleDebug(`Failed to set session description. ${err}`, true)
       );
   };
 
   const onPeerStream = (trackEvent: RTCTrackEvent) => {
-    console.log(trackEvent.streams);
-    trackEvent.streams.forEach((s) => console.log(s));
+    consoleDebug(trackEvent.streams);
+    trackEvent.streams.forEach((s) => consoleDebug(s));
     trackEvent.track.onunmute = () => {
       if (remoteStream !== trackEvent.streams[0]) {
         setRemoteStream(trackEvent.streams[0]);
-        console.log("Receieved remote stream!");
+        consoleDebug("Receieved remote stream!");
       }
     };
   };
@@ -338,11 +345,11 @@ function App() {
     setCalling(false);
     // Should trigger on negotiation neeeded
     localStream?.getTracks().forEach((track) => {
-      console.log(track);
+      consoleDebug(track);
       try {
         localConnection.current.addTrack(track, localStream);
       } catch (err) {
-        console.error(`Could not add track. ${err}`);
+        consoleDebug(`Could not add track. ${err}`, true);
       }
     });
   };
@@ -366,34 +373,6 @@ function App() {
               : `Your username is ${username}`}
           </h5>
         )}
-        {!inCall && (
-          <input
-            type="text"
-            disabled={calling}
-            value={remoteConnectionId}
-            onChange={(event) => setRemoteConnectionId(event.target.value)}
-          />
-        )}
-        <button
-          type="button"
-          disabled={
-            !localConnection.current ||
-            !webSocket.current ||
-            !remoteConnectionId ||
-            calling ||
-            inCall
-          }
-          onClick={() => callRequest()}
-        >
-          Call peer
-        </button>
-        <button
-          type="button"
-          disabled={!localConnection.current || !inCall}
-          onClick={() => hangUp()}
-        >
-          Hang up
-        </button>
         {/*<button
           type="button"
           disabled={!localConnection || !socketConnected || !remoteConnectionId}
@@ -414,6 +393,44 @@ function App() {
               <VideoStream srcObject={remoteStream} />
             </div>
           )}
+        </div>
+        {!inCall && (
+          <input
+            type="text"
+            placeholder="baby-monkey"
+            disabled={calling}
+            value={remoteConnectionId}
+            onChange={(event) => setRemoteConnectionId(event.target.value)}
+          />
+        )}
+        <div style={{ display: "flex" }}>
+          <div>
+            <button
+              type="button"
+              disabled={
+                !localConnection.current ||
+                !webSocket.current ||
+                !remoteConnectionId ||
+                calling ||
+                inCall
+              }
+              onClick={() => callRequest()}
+            >
+              Call peer
+            </button>
+          </div>
+          <div>
+            <button
+              type="button"
+              disabled={!localConnection.current || !inCall}
+              onClick={() => hangUp()}
+            >
+              Hang up
+            </button>
+          </div>
+          <div>
+            <input type="checkbox" defaultChecked={debugLogs} onChange={() => setDebugLogs(!debugLogs)} />
+          </div>
         </div>
       </header>
     </div>
