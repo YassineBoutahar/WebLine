@@ -14,11 +14,13 @@ const VideoStream = ({ srcObject, ...props }: VideoStreamProps) => {
 
   return (
     <video
-      style={{'transform': 'scaleX(-1)', 'WebkitTransform': 'scaleX(-1)'}}
+      style={{ transform: "scaleX(-1)", WebkitTransform: "scaleX(-1)" }}
+      onContextMenu={(mouseEvent) => mouseEvent.preventDefault()}
       ref={vref}
       onCanPlay={() => vref.current?.play()}
       autoPlay
       playsInline
+      controls={false}
       {...props}
     />
   );
