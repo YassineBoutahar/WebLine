@@ -1,6 +1,16 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 // Reference: https://github.com/webrtc/samples/blob/gh-pages/src/content/peerconnection/pc1/js/main.js
 import React, { useEffect, useRef, useState } from "react";
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  Slide,
+} from "@material-ui/core";
+import { TransitionProps } from "@material-ui/core/transitions";
 import randomwords from "random-words";
 import "./App.css";
 import VideoStream from "./VideoStream";
@@ -39,12 +49,20 @@ const connectionOptions = {
   offerToReceiveVideo: true,
 };
 
+const Transition = React.forwardRef(function Transition(
+  props: TransitionProps & { children?: React.ReactElement<any, any> },
+  ref: React.Ref<unknown>
+) {
+  return <Slide direction="up" ref={ref} {...props} />;
+});
+
 function App() {
   const [localStream, setLocalStream] = useState<MediaStream>();
   const [remoteStream, setRemoteStream] = useState<MediaStream>();
   const [remoteConnectionId, setRemoteConnectionId] = useState<string>("");
   const [peerUsername, setPeerUsername] = useState<string>("");
   const [username, setUsername] = useState<string>("");
+  const [incomingCall, setIncomingCall] = useState<boolean>(false);
   const [calling, setCalling] = useState<boolean>(false);
   const [inCall, setInCall] = useState<boolean>(false);
   const [debugLogs, setDebugLogs] = useState<boolean>(false);
@@ -182,6 +200,24 @@ function App() {
     dataChannel.current!.onclose = (ev) => consoleDebug("Data channel close");
   };
 
+  const acceptCall = () => {
+    localConnection.current.ondatachannel = (dataChannelEvent) => {
+      dataChannel.current = dataChannelEvent.channel;
+      setUpDataChannel();
+    };
+    sendPeerMessage(remoteConnectionId, "callAccept", " ");
+    setPeerUsername(peerUsername);
+    setChat("");
+    setIncomingCall(false);
+    setInCall(true);
+  };
+
+  const rejectCall = () => {
+    sendPeerMessage(remoteConnectionId, "callReject", " ");
+    setRemoteConnectionId("");
+    setIncomingCall(false);
+  };
+
   const handlePeerMessage = (peerMessage: peerMessage) => {
     let senderConnectionId = peerMessage.senderConnectionId;
     setRemoteConnectionId(senderConnectionId);
@@ -196,22 +232,13 @@ function App() {
         onPeerIceCandidate(JSON.parse(peerMessage.message));
         break;
       case "callRequest":
-        let userCallAccepted = window.confirm(
-          `Accept call from ${peerMessage.message}?`
-        );
-        if (userCallAccepted) {
-          localConnection.current.ondatachannel = (dataChannelEvent) => {
-            dataChannel.current = dataChannelEvent.channel;
-            setUpDataChannel();
-          };
-          sendPeerMessage(senderConnectionId, "callAccept", " ");
-          setPeerUsername(peerMessage.message);
-          setChat("");
-          setInCall(true);
-        } else {
+        if (incomingCall || calling || inCall) {
           sendPeerMessage(senderConnectionId, "callReject", " ");
           setRemoteConnectionId("");
+          return;
         }
+        setPeerUsername(peerMessage.message);
+        setIncomingCall(true);
         break;
       case "callAccept":
         callPeer();
@@ -396,13 +423,6 @@ function App() {
               : `Your username is ${username}`}
           </h5>
         )}
-        {/*<button
-          type="button"
-          disabled={!localConnection || !socketConnected || !remoteConnectionId}
-          onClick={() => buildAnswer(remoteConnectionId)}
-        >
-          Answer peer
-        </button>*/}
         <div style={{ display: "flex" }}>
           <div style={{ flex: 1 }}>
             {localStream ? (
@@ -421,7 +441,7 @@ function App() {
         {!inCall && (
           <input
             type="text"
-            placeholder="baby-monkey"
+            placeholder={(randomwords(2) as string[]).join("-")}
             disabled={calling}
             value={remoteConnectionId}
             onChange={(event) => setRemoteConnectionId(event.target.value)}
@@ -472,6 +492,29 @@ function App() {
             </button>
           </div>
         </div>
+        <Dialog
+          open={incomingCall}
+          TransitionComponent={Transition}
+          keepMounted
+          onClose={() => rejectCall()}
+          aria-labelledby="alert-dialog-slide-title"
+          aria-describedby="alert-dialog-slide-description"
+        >
+          <DialogTitle id="alert-dialog-slide-title">Incoming call</DialogTitle>
+          <DialogContent>
+            <DialogContentText id="alert-dialog-slide-description">
+              Would you like to accept the call from <b>{peerUsername}</b>?
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => rejectCall()} color="primary">
+              Decline
+            </Button>
+            <Button onClick={() => acceptCall()} color="primary">
+              Accept
+            </Button>
+          </DialogActions>
+        </Dialog>
       </header>
     </div>
   );
