@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 // Reference: https://github.com/webrtc/samples/blob/gh-pages/src/content/peerconnection/pc1/js/main.js
 import React, { useEffect, useRef, useState } from "react";
+import randomwords from "random-words";
 import "./App.css";
 import VideoStream from "./VideoStream";
 
@@ -42,6 +43,8 @@ function App() {
   const [localStream, setLocalStream] = useState<MediaStream>();
   const [remoteStream, setRemoteStream] = useState<MediaStream>();
   const [remoteConnectionId, setRemoteConnectionId] = useState<string>("");
+  const [peerUsername, setPeerUsername] = useState<string>("");
+  const [username, setUsername] = useState<string>("");
   const [calling, setCalling] = useState<boolean>(false);
   const [inCall, setInCall] = useState<boolean>(false);
   const localConnection = useRef<RTCPeerConnection>(
@@ -68,10 +71,18 @@ function App() {
   useEffect(() => {
     setUpLocalConnection();
 
+    let twoWords = (randomwords(2) as string[]).join("-");
+
     webSocket.current = new WebSocket(socketUrl);
     webSocket.current.addEventListener("open", (_ev) => {
       console.log("Socket connection opened.");
       webSocket.current?.send("");
+      webSocket.current!.send(
+        JSON.stringify({
+          action: "setusername",
+          username: twoWords,
+        })
+      );
     });
     webSocket.current.addEventListener("close", (_ev) => {
       console.log("Socket connection closed.");
@@ -86,15 +97,38 @@ function App() {
     if (webSocket.current) {
       webSocket.current.addEventListener("message", (messageEvent) => {
         // To avoid re-handling messages sent by potential duplicate lambda invocations
-        if (!messageEvent.data || messageEvent.data === lastPeerMessage.current)
+        if (
+          !messageEvent.data ||
+          messageEvent.data === lastPeerMessage.current
+        ) {
+          lastPeerMessage.current = messageEvent.data;
           return;
-        lastPeerMessage.current = messageEvent.data;
+        }
+
         let response = JSON.parse(messageEvent.data);
         console.log(response);
-        if (response.responseType === "defaultStatus") {
-          // setLocalConnectionId(response.connectionId);
-        } else if (response.responseType === "peerMessage") {
-          handlePeerMessage(response);
+        switch (response.responseType) {
+          case "defaultStatus":
+            break;
+          case "peerMessage":
+            handlePeerMessage(response);
+            break;
+          case "usernameSet":
+            setUsername(response.username);
+            break;
+          case "usernameUnavailable":
+            let twoWords = (randomwords(2) as string[]).join("-");
+            webSocket.current!.send(
+              JSON.stringify({
+                action: "setusername",
+                username: twoWords,
+              })
+            );
+            break;
+          default:
+            console.error(
+              `Unknown socket message type ${response.responseType}`
+            );
         }
       });
     }
@@ -145,10 +179,11 @@ function App() {
         break;
       case "callRequest":
         let userCallAccepted = window.confirm(
-          `Accept call from ${senderConnectionId}?`
+          `Accept call from ${peerMessage.message}?`
         );
         if (userCallAccepted) {
           sendPeerMessage(senderConnectionId, "callAccept", " ");
+          setPeerUsername(peerMessage.message);
           setInCall(true);
         } else {
           sendPeerMessage(senderConnectionId, "callReject", " ");
@@ -156,7 +191,6 @@ function App() {
         }
         break;
       case "callAccept":
-        if (!calling) return;
         callPeer();
         break;
       case "callReject":
@@ -229,7 +263,11 @@ function App() {
         console.log("setLocalDescription complete for remote from local");
         localStream?.getTracks().forEach((track) => {
           console.log(track);
-          localConnection.current.addTrack(track, localStream);
+          try {
+            localConnection.current.addTrack(track, localStream);
+          } catch (err) {
+            console.log(`Could not add track. ${err}`);
+          }
         });
         buildAnswer(peerConnectionId);
       })
@@ -291,7 +329,8 @@ function App() {
 
   const callRequest = () => {
     setCalling(true);
-    sendPeerMessage(remoteConnectionId, "callRequest", " ");
+    setPeerUsername(remoteConnectionId);
+    sendPeerMessage(remoteConnectionId, "callRequest", username);
   };
 
   const callPeer = () => {
@@ -300,12 +339,18 @@ function App() {
     // Should trigger on negotiation neeeded
     localStream?.getTracks().forEach((track) => {
       console.log(track);
-      localConnection.current.addTrack(track, localStream);
+      try {
+        localConnection.current.addTrack(track, localStream);
+      } catch (err) {
+        console.error(`Could not add track. ${err}`);
+      }
     });
   };
 
   const hangUp = () => {
     setInCall(false);
+    setPeerUsername("");
+    setRemoteConnectionId("");
     localConnection.current.close();
     localConnection.current = new RTCPeerConnection(configuration);
     setUpLocalConnection();
@@ -314,12 +359,21 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <input
-          type="text"
-          disabled={calling}
-          value={remoteConnectionId}
-          onChange={(event) => setRemoteConnectionId(event.target.value)}
-        />
+        {username && (
+          <h5>
+            {peerUsername && inCall
+              ? `In a call with ${peerUsername}`
+              : `Your username is ${username}`}
+          </h5>
+        )}
+        {!inCall && (
+          <input
+            type="text"
+            disabled={calling}
+            value={remoteConnectionId}
+            onChange={(event) => setRemoteConnectionId(event.target.value)}
+          />
+        )}
         <button
           type="button"
           disabled={
