@@ -86,9 +86,11 @@ function App() {
     if (webSocket.current) {
       webSocket.current.addEventListener("message", (messageEvent) => {
         // To avoid re-handling messages sent by potential duplicate lambda invocations
-        if (!messageEvent.data || messageEvent.data === lastPeerMessage.current)
+        if (!messageEvent.data || messageEvent.data === lastPeerMessage.current){
+          lastPeerMessage.current = messageEvent.data;
           return;
-        lastPeerMessage.current = messageEvent.data;
+        }
+        
         let response = JSON.parse(messageEvent.data);
         console.log(response);
         if (response.responseType === "defaultStatus") {
@@ -156,7 +158,6 @@ function App() {
         }
         break;
       case "callAccept":
-        if (!calling) return;
         callPeer();
         break;
       case "callReject":
