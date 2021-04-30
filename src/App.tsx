@@ -48,17 +48,19 @@ function App() {
   const [calling, setCalling] = useState<boolean>(false);
   const [inCall, setInCall] = useState<boolean>(false);
   const [debugLogs, setDebugLogs] = useState<boolean>(false);
+  const [chat, setChat] = useState<string>("");
   const localConnection = useRef<RTCPeerConnection>(
     new RTCPeerConnection(configuration)
   );
+  const dataChannel = useRef<RTCDataChannel>();
   const webSocket = useRef<WebSocket | null>(null);
   const lastPeerMessage = useRef<string>("");
 
   const consoleDebug = (message: any, error = false) => {
-    if(!debugLogs || !window.console || !console) return;
-    if(error) console.error(message);
+    if (!debugLogs || !window.console || !console) return;
+    if (error) console.error(message);
     else console.log(message);
-  }
+  };
 
   useEffect(() => {
     // https://blog.logrocket.com/responsive-camera-component-react-hooks/
@@ -134,7 +136,8 @@ function App() {
             break;
           default:
             consoleDebug(
-              `Unknown socket message type ${response.responseType}`, true
+              `Unknown socket message type ${response.responseType}`,
+              true
             );
         }
       });
@@ -161,7 +164,8 @@ function App() {
   const setUpLocalConnection = () => {
     localConnection.current.oniceconnectionstatechange = (ev) =>
       consoleDebug(ev);
-    localConnection.current.onicecandidateerror = (err) => consoleDebug(err, true);
+    localConnection.current.onicecandidateerror = (err) =>
+      consoleDebug(err, true);
     localConnection.current.ontrack = (trackEvent) => onPeerStream(trackEvent);
     localConnection.current.onconnectionstatechange = (_ev) => {
       if (localConnection.current.connectionState === "disconnected") hangUp();
@@ -169,6 +173,13 @@ function App() {
     updateListeners();
 
     // let dataChannel = localConnection.createDataChannel("dataChannel");
+  };
+
+  const setUpDataChannel = () => {
+    dataChannel.current!.onmessage = (ev) =>
+      setChat((prev) => prev + "hello there ");
+    dataChannel.current!.onopen = (ev) => consoleDebug("Data channel open");
+    dataChannel.current!.onclose = (ev) => consoleDebug("Data channel close");
   };
 
   const handlePeerMessage = (peerMessage: peerMessage) => {
@@ -189,8 +200,13 @@ function App() {
           `Accept call from ${peerMessage.message}?`
         );
         if (userCallAccepted) {
+          localConnection.current.ondatachannel = (dataChannelEvent) => {
+            dataChannel.current = dataChannelEvent.channel;
+            setUpDataChannel();
+          };
           sendPeerMessage(senderConnectionId, "callAccept", " ");
           setPeerUsername(peerMessage.message);
+          setChat("");
           setInCall(true);
         } else {
           sendPeerMessage(senderConnectionId, "callReject", " ");
@@ -335,6 +351,7 @@ function App() {
   };
 
   const callRequest = () => {
+    setChat("");
     setCalling(true);
     setPeerUsername(remoteConnectionId);
     sendPeerMessage(remoteConnectionId, "callRequest", username);
@@ -352,12 +369,18 @@ function App() {
         consoleDebug(`Could not add track. ${err}`, true);
       }
     });
+
+    dataChannel.current = localConnection.current.createDataChannel(
+      "textChannel"
+    );
+    setUpDataChannel();
   };
 
   const hangUp = () => {
     setInCall(false);
     setPeerUsername("");
     setRemoteConnectionId("");
+    dataChannel.current?.close();
     localConnection.current.close();
     localConnection.current = new RTCPeerConnection(configuration);
     setUpLocalConnection();
@@ -394,6 +417,7 @@ function App() {
             </div>
           )}
         </div>
+        <textarea value={chat} />
         {!inCall && (
           <input
             type="text"
@@ -429,7 +453,23 @@ function App() {
             </button>
           </div>
           <div>
-            <input type="checkbox" defaultChecked={debugLogs} onChange={() => setDebugLogs(!debugLogs)} />
+            <input
+              type="checkbox"
+              disabled={!window.console || !console}
+              defaultChecked={debugLogs}
+              onChange={() => setDebugLogs(!debugLogs)}
+            />
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={() => {
+                setChat((prev) => prev + "hello there ");
+                dataChannel.current?.send("hello there ");
+              }}
+            >
+              Hello there
+            </button>
           </div>
         </div>
       </header>
