@@ -55,7 +55,7 @@ function App() {
   const lastPeerMessage = useRef<string>("");
 
   const consoleDebug = (message: any, error = false) => {
-    if(!debugLogs && (!window.console || !console)) return;
+    if(!debugLogs || !window.console || !console) return;
     if(error) console.error(message);
     else console.log(message);
   }
