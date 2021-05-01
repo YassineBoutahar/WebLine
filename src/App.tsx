@@ -2,6 +2,7 @@
 // Reference: https://github.com/webrtc/samples/blob/gh-pages/src/content/peerconnection/pc1/js/main.js
 import React, { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
+import { Rnd } from "react-rnd";
 import {
   Button,
   Dialog,
@@ -16,10 +17,12 @@ import {
   TextField,
   TextareaAutosize,
   Box,
+  IconButton,
   makeStyles,
   Theme,
   createStyles,
 } from "@material-ui/core";
+import CallEndIcon from "@material-ui/icons/CallEnd";
 import { TransitionProps } from "@material-ui/core/transitions";
 import randomwords from "random-words";
 import "./App.css";
@@ -93,11 +96,50 @@ const useStyles = makeStyles((theme: Theme) =>
       }),
       marginRight: 0,
     },
+    localStreamRnd: {
+      zIndex: 50,
+    },
+    callControls: {
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "flex-end",
+      alignItems: "center",
+      position: "absolute",
+      zIndex: 100,
+      height: "100%",
+      bottom: 20,
+    },
+    hangupButtonEnabled: {
+      backgroundColor: "red",
+      color: "white",
+    },
+    hangupButtonDisabled: {
+      backgroundColor: "grey",
+      color: "white",
+    },
+    textAreaContainer: {
+      height: "100%",
+      width: "100%",
+    },
+    textArea: {
+      height: "100%",
+      width: "100%",
+      boxSizing: "border-box",
+      border: "none",
+      resize: "none",
+      outline: "none",
+      boxShadow: "none",
+      MozBoxShadow: "none",
+      WebkitBoxShadow: "none",
+      overflowY: "auto",
+    },
   })
 );
 
 function App() {
   const [localStream, setLocalStream] = useState<MediaStream>();
+  const [localStreamHeight, setLocalStreamHeight] = useState<number>(0);
+  const [localStreamWidth, setLocalStreamWidth] = useState<number>(0);
   const [remoteStream, setRemoteStream] = useState<MediaStream>();
   const [remoteConnectionId, setRemoteConnectionId] = useState<string>("");
   const [peerUsername, setPeerUsername] = useState<string>("");
@@ -105,7 +147,7 @@ function App() {
   const [incomingCall, setIncomingCall] = useState<boolean>(false);
   const [calling, setCalling] = useState<boolean>(false);
   const [inCall, setInCall] = useState<boolean>(false);
-  const [debugLogs, setDebugLogs] = useState<boolean>(false);
+  const [debugLogs, setDebugLogs] = useState<boolean>(true);
   const [chatContent, setChatContent] = useState<string>("");
   const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [currentMessage, setCurrentMessage] = useState<string>("");
@@ -128,8 +170,22 @@ function App() {
     // https://blog.logrocket.com/responsive-camera-component-react-hooks/
     if (!localStream) {
       navigator.mediaDevices
-        .getUserMedia({ audio: true, video: true })
-        .then((s) => setLocalStream(s))
+        .getUserMedia({
+          audio: true,
+          video: {
+            width: { ideal: 4096 },
+            height: { ideal: 2160 },
+          },
+        })
+        .then((s) => {
+          setLocalStream(s);
+          setLocalStreamHeight(
+            s.getVideoTracks()[0].getSettings().height || 960
+          );
+          setLocalStreamWidth(
+            s.getVideoTracks()[0].getSettings().width || 1280
+          );
+        })
         .catch((err) => consoleDebug(err));
     } else {
       return () =>
@@ -244,6 +300,8 @@ function App() {
   };
 
   const acceptCall = () => {
+    setLocalStreamHeight(localStreamHeight / 2);
+    setLocalStreamWidth(localStreamWidth / 2);
     localConnection.current.ondatachannel = (dataChannelEvent) => {
       dataChannel.current = dataChannelEvent.channel;
       setUpDataChannel();
@@ -427,6 +485,8 @@ function App() {
   };
 
   const callPeer = () => {
+    setLocalStreamHeight(localStreamHeight / 2);
+    setLocalStreamWidth(localStreamWidth / 2);
     setInCall(true);
     setCalling(false);
     // Should trigger on negotiation neeeded
@@ -475,43 +535,68 @@ function App() {
             [classes.contentShift]: chatOpen,
           })}
         >
-          <div style={{ display: "flex" }}>
-            <div style={{ flex: 1 }}>
-              {localStream ? (
-                <VideoStream srcObject={localStream} muted />
-              ) : (
-                <h4>Please enable your camera</h4>
-              )}
-            </div>
-            {remoteStream && inCall && (
-              <div style={{ flex: 1 }}>
-                <VideoStream srcObject={remoteStream} />
-              </div>
-            )}
-          </div>
-          <div style={{ display: "flex" }}>
-            <div>
-              <button
-                type="button"
-                disabled={!localConnection.current || !inCall}
-                onClick={() => hangUp()}
-              >
-                Hang up
-              </button>
-            </div>
-            <div>
-              <input
-                type="checkbox"
-                disabled={!window.console || !console}
-                defaultChecked={debugLogs}
-                onChange={() => setDebugLogs(!debugLogs)}
+          <Rnd
+            className={classes.localStreamRnd}
+            default={{
+              x: -60,
+              y: 20,
+              width: localStream?.getVideoTracks()[0].getSettings().width || 0,
+              height:
+                localStream?.getVideoTracks()[0].getSettings().height || 0,
+            }}
+            bounds=".App-header"
+          >
+            {localStream ? (
+              <VideoStream
+                srcObject={localStream}
+                muted
+                styleObject={{
+                  height: localStreamHeight,
+                  width: localStreamWidth,
+                }}
               />
-            </div>
+            ) : (
+              <h4>Please enable your camera</h4>
+            )}
+          </Rnd>
+          {remoteStream && inCall && (
+            <VideoStream
+              srcObject={remoteStream}
+              styleObject={{
+                height: "100vh",
+                width: `calc(100vw - ${drawerWidth})`,
+                objectFit: "contain",
+                position: "absolute",
+                top: 0,
+                left: 0,
+                zIndex: 2,
+              }}
+            />
+          )}
+          <div className={classes.callControls}>
+            <IconButton
+              className={
+                !localConnection.current || !inCall
+                  ? classes.hangupButtonDisabled
+                  : classes.hangupButtonEnabled
+              }
+              disabled={!localConnection.current || !inCall}
+              onClick={() => hangUp()}
+              color="inherit"
+            >
+              <CallEndIcon fontSize="large" color="inherit" />
+            </IconButton>
+            {/*<input
+              type="checkbox"
+              disabled={!window.console || !console}
+              defaultChecked={debugLogs}
+              onChange={() => setDebugLogs(!debugLogs)}
+            />
             <div>
               <button type="button" onClick={() => setChatOpen(!chatOpen)}>
                 Open chat
               </button>
-            </div>
+            </div>*/}
           </div>
           <Dialog
             open={incomingCall}
@@ -558,28 +643,14 @@ function App() {
           </div>
           <Divider />
           <Box
+            className={classes.textAreaContainer}
             display="flex"
             flexDirection="column"
             justifyContent="spaceBetween"
-            style={{
-              height: "100%",
-              width: "100%",
-            }}
           >
             <Box display="flex" flexGrow={1}>
               <TextareaAutosize
-                style={{
-                  height: "100%",
-                  width: "100%",
-                  boxSizing: "border-box",
-                  border: "none",
-                  resize: "none",
-                  outline: "none",
-                  boxShadow: "none",
-                  MozBoxShadow: "none",
-                  WebkitBoxShadow: "none",
-                  overflowY: "auto",
-                }}
+                className={classes.textArea}
                 value={chatContent}
                 readOnly={true}
                 draggable={false}
