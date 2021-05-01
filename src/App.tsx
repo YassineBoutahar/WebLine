@@ -600,6 +600,11 @@ function App() {
                       setPeerUsername(event.target.value);
                     } else setCurrentMessage(event.target.value);
                   }}
+                  onKeyDown={(keyEvent) => {
+                    if (keyEvent.key === "Enter") {
+                      inCall ? sendTextMessage() : callRequest();
+                    }
+                  }}
                 />
               </Box>
               <Box display="flex" flexGrow={0}>
