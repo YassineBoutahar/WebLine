@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 // Reference: https://github.com/webrtc/samples/blob/gh-pages/src/content/peerconnection/pc1/js/main.js
 import React, { useEffect, useRef, useState } from "react";
+import clsx from "clsx";
 import {
   Button,
   Dialog,
@@ -9,6 +10,15 @@ import {
   DialogContentText,
   DialogTitle,
   Slide,
+  Drawer,
+  Divider,
+  Typography,
+  TextField,
+  TextareaAutosize,
+  Box,
+  makeStyles,
+  Theme,
+  createStyles,
 } from "@material-ui/core";
 import { TransitionProps } from "@material-ui/core/transitions";
 import randomwords from "random-words";
@@ -56,6 +66,36 @@ const Transition = React.forwardRef(function Transition(
   return <Slide direction="up" ref={ref} {...props} />;
 });
 
+const drawerWidth = 350;
+
+const useStyles = makeStyles((theme: Theme) =>
+  createStyles({
+    drawer: {
+      width: drawerWidth,
+      flexShrink: 0,
+    },
+    drawerPaper: {
+      width: drawerWidth,
+    },
+    content: {
+      flexGrow: 1,
+      padding: theme.spacing(3),
+      transition: theme.transitions.create("margin", {
+        easing: theme.transitions.easing.sharp,
+        duration: theme.transitions.duration.leavingScreen,
+      }),
+      marginRight: -drawerWidth,
+    },
+    contentShift: {
+      transition: theme.transitions.create("margin", {
+        easing: theme.transitions.easing.easeOut,
+        duration: theme.transitions.duration.enteringScreen,
+      }),
+      marginRight: 0,
+    },
+  })
+);
+
 function App() {
   const [localStream, setLocalStream] = useState<MediaStream>();
   const [remoteStream, setRemoteStream] = useState<MediaStream>();
@@ -66,13 +106,17 @@ function App() {
   const [calling, setCalling] = useState<boolean>(false);
   const [inCall, setInCall] = useState<boolean>(false);
   const [debugLogs, setDebugLogs] = useState<boolean>(false);
-  const [chat, setChat] = useState<string>("");
+  const [chatContent, setChatContent] = useState<string>("");
+  const [chatOpen, setChatOpen] = useState<boolean>(true);
+  const [currentMessage, setCurrentMessage] = useState<string>("");
   const localConnection = useRef<RTCPeerConnection>(
     new RTCPeerConnection(configuration)
   );
   const dataChannel = useRef<RTCDataChannel>();
   const webSocket = useRef<WebSocket | null>(null);
   const lastPeerMessage = useRef<string>("");
+
+  const classes = useStyles();
 
   const consoleDebug = (message: any, error = false) => {
     if (!debugLogs || !window.console || !console) return;
@@ -194,8 +238,7 @@ function App() {
   };
 
   const setUpDataChannel = () => {
-    dataChannel.current!.onmessage = (ev) =>
-      setChat((prev) => prev + "hello there ");
+    dataChannel.current!.onmessage = (ev) => receiveTextMessage(ev.data);
     dataChannel.current!.onopen = (ev) => consoleDebug("Data channel open");
     dataChannel.current!.onclose = (ev) => consoleDebug("Data channel close");
   };
@@ -207,7 +250,7 @@ function App() {
     };
     sendPeerMessage(remoteConnectionId, "callAccept", " ");
     setPeerUsername(peerUsername);
-    setChat("");
+    setChatContent("");
     setIncomingCall(false);
     setInCall(true);
   };
@@ -378,9 +421,8 @@ function App() {
   };
 
   const callRequest = () => {
-    setChat("");
+    setChatContent("");
     setCalling(true);
-    setPeerUsername(remoteConnectionId);
     sendPeerMessage(remoteConnectionId, "callRequest", username);
   };
 
@@ -413,108 +455,185 @@ function App() {
     setUpLocalConnection();
   };
 
+  const receiveTextMessage = (receivedMessage: string) => {
+    let newMessage = `${peerUsername}: ${receivedMessage}\r\n`;
+    setChatContent((prev) => prev + newMessage);
+  };
+
+  const sendTextMessage = () => {
+    let newMessage = `${username}: ${currentMessage}\r\n`;
+    setChatContent((prev) => prev + newMessage);
+    dataChannel.current?.send(currentMessage);
+    setCurrentMessage("");
+  };
+
   return (
     <div className="App">
       <header className="App-header">
-        {username && (
-          <h5>
-            {peerUsername && inCall
-              ? `In a call with ${peerUsername}`
-              : `Your username is ${username}`}
-          </h5>
-        )}
-        <div style={{ display: "flex" }}>
-          <div style={{ flex: 1 }}>
-            {localStream ? (
-              <VideoStream srcObject={localStream} muted />
-            ) : (
-              <h4>Please enable your camera</h4>
+        <main
+          className={clsx(classes.content, {
+            [classes.contentShift]: chatOpen,
+          })}
+        >
+          <div style={{ display: "flex" }}>
+            <div style={{ flex: 1 }}>
+              {localStream ? (
+                <VideoStream srcObject={localStream} muted />
+              ) : (
+                <h4>Please enable your camera</h4>
+              )}
+            </div>
+            {remoteStream && inCall && (
+              <div style={{ flex: 1 }}>
+                <VideoStream srcObject={remoteStream} />
+              </div>
             )}
           </div>
-          {remoteStream && inCall && (
-            <div style={{ flex: 1 }}>
-              <VideoStream srcObject={remoteStream} />
+          <div style={{ display: "flex" }}>
+            <div>
+              <button
+                type="button"
+                disabled={!localConnection.current || !inCall}
+                onClick={() => hangUp()}
+              >
+                Hang up
+              </button>
             </div>
-          )}
-        </div>
-        <textarea value={chat} />
-        {!inCall && (
-          <input
-            type="text"
-            placeholder={(randomwords(2) as string[]).join("-")}
-            disabled={calling}
-            value={remoteConnectionId}
-            onChange={(event) => setRemoteConnectionId(event.target.value)}
-          />
-        )}
-        <div style={{ display: "flex" }}>
-          <div>
-            <button
-              type="button"
-              disabled={
-                !localConnection.current ||
-                !webSocket.current ||
-                !remoteConnectionId ||
-                calling ||
-                inCall
-              }
-              onClick={() => callRequest()}
-            >
-              Call peer
-            </button>
+            <div>
+              <input
+                type="checkbox"
+                disabled={!window.console || !console}
+                defaultChecked={debugLogs}
+                onChange={() => setDebugLogs(!debugLogs)}
+              />
+            </div>
+            <div>
+              <button type="button" onClick={() => setChatOpen(!chatOpen)}>
+                Open chat
+              </button>
+            </div>
           </div>
-          <div>
-            <button
-              type="button"
-              disabled={!localConnection.current || !inCall}
-              onClick={() => hangUp()}
-            >
-              Hang up
-            </button>
-          </div>
-          <div>
-            <input
-              type="checkbox"
-              disabled={!window.console || !console}
-              defaultChecked={debugLogs}
-              onChange={() => setDebugLogs(!debugLogs)}
-            />
-          </div>
-          <div>
-            <button
-              type="button"
-              onClick={() => {
-                setChat((prev) => prev + "hello there ");
-                dataChannel.current?.send("hello there ");
-              }}
-            >
-              Hello there
-            </button>
-          </div>
-        </div>
-        <Dialog
-          open={incomingCall}
-          TransitionComponent={Transition}
-          keepMounted
-          onClose={() => rejectCall()}
-          aria-labelledby="alert-dialog-slide-title"
-          aria-describedby="alert-dialog-slide-description"
+          <Dialog
+            open={incomingCall}
+            TransitionComponent={Transition}
+            keepMounted
+            onClose={() => rejectCall()}
+            aria-labelledby="alert-dialog-slide-title"
+            aria-describedby="alert-dialog-slide-description"
+          >
+            <DialogTitle id="alert-dialog-slide-title">
+              Incoming call
+            </DialogTitle>
+            <DialogContent>
+              <DialogContentText id="alert-dialog-slide-description">
+                Would you like to accept the call from <b>{peerUsername}</b>?
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => rejectCall()} color="primary">
+                Decline
+              </Button>
+              <Button onClick={() => acceptCall()} color="primary">
+                Accept
+              </Button>
+            </DialogActions>
+          </Dialog>
+        </main>
+        <Drawer
+          className={classes.drawer}
+          variant="persistent"
+          anchor="right"
+          open={chatOpen}
+          classes={{
+            paper: classes.drawerPaper,
+          }}
         >
-          <DialogTitle id="alert-dialog-slide-title">Incoming call</DialogTitle>
-          <DialogContent>
-            <DialogContentText id="alert-dialog-slide-description">
-              Would you like to accept the call from <b>{peerUsername}</b>?
-            </DialogContentText>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => rejectCall()} color="primary">
-              Decline
-            </Button>
-            <Button onClick={() => acceptCall()} color="primary">
-              Accept
-            </Button>
-          </DialogActions>
-        </Dialog>
+          <div>
+            <Typography>
+              {peerUsername && inCall ? `In a call with` : `Your username is`}
+            </Typography>
+            <Typography variant="h6">
+              {peerUsername && inCall ? peerUsername : username}
+            </Typography>
+          </div>
+          <Divider />
+          <Box
+            display="flex"
+            flexDirection="column"
+            justifyContent="spaceBetween"
+            style={{
+              height: "100%",
+              width: "100%",
+            }}
+          >
+            <Box display="flex" flexGrow={1}>
+              <TextareaAutosize
+                style={{
+                  height: "100%",
+                  width: "100%",
+                  boxSizing: "border-box",
+                  border: "none",
+                  resize: "none",
+                  outline: "none",
+                  boxShadow: "none",
+                  MozBoxShadow: "none",
+                  WebkitBoxShadow: "none",
+                  overflowY: "auto",
+                }}
+                value={chatContent}
+                readOnly={true}
+                draggable={false}
+              />
+            </Box>
+            <Box display="flex" flexWrap="nowrap">
+              <Box display="flex" flexGrow={1}>
+                <TextField
+                  fullWidth
+                  placeholder={
+                    inCall ? "Message" : (randomwords(2) as string[]).join("-")
+                  }
+                  disabled={calling || incomingCall}
+                  value={inCall ? currentMessage : remoteConnectionId}
+                  onChange={(event) => {
+                    if (!inCall) {
+                      setRemoteConnectionId(event.target.value);
+                      setPeerUsername(event.target.value);
+                    } else setCurrentMessage(event.target.value);
+                  }}
+                />
+              </Box>
+              <Box display="flex" flexGrow={0}>
+                {inCall ? (
+                  <Button
+                    disabled={
+                      incomingCall ||
+                      calling ||
+                      !currentMessage ||
+                      !dataChannel.current
+                    }
+                    onClick={() => sendTextMessage()}
+                  >
+                    Send
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={
+                      !localConnection.current ||
+                      !webSocket.current ||
+                      !remoteConnectionId ||
+                      calling ||
+                      inCall ||
+                      !/^\w+(-\w+)$/.test(remoteConnectionId)
+                    }
+                    onClick={() => callRequest()}
+                  >
+                    Connect
+                  </Button>
+                )}
+              </Box>
+            </Box>
+          </Box>
+        </Drawer>
       </header>
     </div>
   );
