@@ -25,7 +25,6 @@ import {
 import CallEndIcon from "@material-ui/icons/CallEnd";
 import { TransitionProps } from "@material-ui/core/transitions";
 import randomwords from "random-words";
-import "./App.css";
 import VideoStream from "./VideoStream";
 
 const socketUrl = "mywebsocketserver";
@@ -42,6 +41,14 @@ type peerMessage = {
   senderConnectionId: string;
   messageType: peerMessageType;
   message: string;
+};
+
+type streamPosition = {
+  x: number;
+  y: number;
+  height: number;
+  width: number;
+  aspectRatio: number;
 };
 
 const configuration = {
@@ -73,12 +80,18 @@ const drawerWidth = 350;
 
 const useStyles = makeStyles((theme: Theme) =>
   createStyles({
+    root: {
+      minHeight: "100vh",
+      backgroundColor: theme.palette.background.default,
+      textAlign: "center",
+    },
     drawer: {
       width: drawerWidth,
       flexShrink: 0,
     },
     drawerPaper: {
       width: drawerWidth,
+      paddingTop: 5,
     },
     content: {
       flexGrow: 1,
@@ -99,23 +112,25 @@ const useStyles = makeStyles((theme: Theme) =>
     localStreamRnd: {
       zIndex: 50,
     },
-    callControls: {
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "flex-end",
-      alignItems: "center",
-      position: "absolute",
-      zIndex: 100,
-      height: "100%",
-      bottom: 20,
+    remoteStream: {
+      marginRight: drawerWidth,
     },
     hangupButtonEnabled: {
+      position: "absolute",
+      left: window.screen.availWidth / 2 - drawerWidth / 2,
+      bottom: 20,
       backgroundColor: "red",
       color: "white",
+      zIndex: 100,
+      opacity: 0.2,
     },
     hangupButtonDisabled: {
+      position: "absolute",
+      left: window.screen.availWidth / 2 - drawerWidth / 2,
+      bottom: 20,
       backgroundColor: "grey",
       color: "white",
+      zIndex: 100,
     },
     textAreaContainer: {
       height: "100%",
@@ -124,6 +139,8 @@ const useStyles = makeStyles((theme: Theme) =>
     textArea: {
       height: "100%",
       width: "100%",
+      background: "none",
+      color: theme.palette.text.primary,
       boxSizing: "border-box",
       border: "none",
       resize: "none",
@@ -138,23 +155,32 @@ const useStyles = makeStyles((theme: Theme) =>
 
 function App() {
   const [localStream, setLocalStream] = useState<MediaStream>();
-  const [localStreamHeight, setLocalStreamHeight] = useState<number>(0);
-  const [localStreamWidth, setLocalStreamWidth] = useState<number>(0);
+  const [
+    localStreamPosition,
+    setLocalStreamPosition,
+  ] = useState<streamPosition>({
+    x: 0,
+    y: 0,
+    height: 0,
+    width: 0,
+    aspectRatio: 1,
+  });
   const [remoteStream, setRemoteStream] = useState<MediaStream>();
   const [remoteConnectionId, setRemoteConnectionId] = useState<string>("");
   const [peerUsername, setPeerUsername] = useState<string>("");
   const [username, setUsername] = useState<string>("");
+  const [placeholderUsername, setPlaceHolderUsername] = useState<string>(
+    (randomwords(2) as string[]).join("-")
+  );
   const [incomingCall, setIncomingCall] = useState<boolean>(false);
   const [calling, setCalling] = useState<boolean>(false);
   const [inCall, setInCall] = useState<boolean>(false);
   const [callRejected, setCallRejected] = useState<boolean>(false);
-  const [debugLogs, setDebugLogs] = useState<boolean>(true);
+  // const [debugLogs, setDebugLogs] = useState<boolean>(true);
   const [chatContent, setChatContent] = useState<string>("");
-  const [chatOpen, setChatOpen] = useState<boolean>(true);
+  // const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [currentMessage, setCurrentMessage] = useState<string>("");
-  const localConnection = useRef<RTCPeerConnection>(
-    new RTCPeerConnection(configuration)
-  );
+  const localConnection = useRef<RTCPeerConnection | null>(null);
   const dataChannel = useRef<RTCDataChannel>();
   const webSocket = useRef<WebSocket | null>(null);
   const lastPeerMessage = useRef<string>("");
@@ -162,7 +188,9 @@ function App() {
   const classes = useStyles();
 
   const consoleDebug = (message: any, error = false) => {
-    if (!debugLogs || !window.console || !console) return;
+    // Temporary till I think of place for debug checkbox
+    // if (!debugLogs || !window.console || !console) return;
+    if (!false || !window.console || !console) return;
     if (error) console.error(message);
     else console.log(message);
   };
@@ -180,12 +208,13 @@ function App() {
         })
         .then((s) => {
           setLocalStream(s);
-          setLocalStreamHeight(
-            s.getVideoTracks()[0].getSettings().height || 960
-          );
-          setLocalStreamWidth(
-            s.getVideoTracks()[0].getSettings().width || 1280
-          );
+          setLocalStreamPosition({
+            x: 0,
+            y: 0,
+            height: s.getVideoTracks()[0].getSettings().height || 960,
+            width: s.getVideoTracks()[0].getSettings().width || 1280,
+            aspectRatio: s.getVideoTracks()[0].getSettings().aspectRatio || 1,
+          });
         })
         .catch((err) => consoleDebug(err));
     } else {
@@ -263,31 +292,36 @@ function App() {
     }
   }, [remoteConnectionId]);
 
+  useEffect(() => {
+    setPlaceHolderUsername((randomwords(2) as string[]).join("-"));
+  }, [inCall]);
+
   const updateListeners = () => {
-    localConnection.current.onicecandidate = (iceEvent) => {
+    localConnection.current!.onicecandidate = (iceEvent) => {
       sendPeerMessage(
         remoteConnectionId,
         "iceCandidate",
         JSON.stringify(iceEvent.candidate)
       );
     };
-    localConnection.current.onnegotiationneeded = async () => {
-      const localSessionDescription = await localConnection.current.createOffer(
+    localConnection.current!.onnegotiationneeded = async () => {
+      const localSessionDescription = await localConnection.current!.createOffer(
         connectionOptions
       );
-      if (localConnection.current.signalingState !== "stable") return;
+      if (localConnection.current!.signalingState !== "stable") return;
       sendOffer(localSessionDescription);
     };
   };
 
   const setUpLocalConnection = () => {
+    localConnection.current = new RTCPeerConnection(configuration);
     localConnection.current.oniceconnectionstatechange = (ev) =>
       consoleDebug(ev);
     localConnection.current.onicecandidateerror = (err) =>
       consoleDebug(err, true);
     localConnection.current.ontrack = (trackEvent) => onPeerStream(trackEvent);
     localConnection.current.onconnectionstatechange = (_ev) => {
-      if (localConnection.current.connectionState === "disconnected") hangUp();
+      if (localConnection.current?.connectionState === "disconnected") hangUp();
     };
     updateListeners();
 
@@ -301,9 +335,12 @@ function App() {
   };
 
   const acceptCall = () => {
-    setLocalStreamHeight(localStreamHeight / 2);
-    setLocalStreamWidth(localStreamWidth / 2);
-    localConnection.current.ondatachannel = (dataChannelEvent) => {
+    setLocalStreamPosition({
+      ...localStreamPosition,
+      height: localStreamPosition.height / 2,
+      width: localStreamPosition.width / 2,
+    });
+    localConnection.current!.ondatachannel = (dataChannelEvent) => {
       dataChannel.current = dataChannelEvent.channel;
       setUpDataChannel();
     };
@@ -376,8 +413,8 @@ function App() {
   ) => {
     if (attempt > 0)
       consoleDebug("Retrying ice candidate... Attempt " + attempt);
-    localConnection.current
-      .addIceCandidate(iceCandidate)
+    localConnection
+      .current!.addIceCandidate(iceCandidate)
       .then(() => consoleDebug("Successfully added peer ICE candidate"))
       .catch(async (err) => {
         consoleDebug(`Could not add peer ICE candidate. ${err}`, true);
@@ -389,8 +426,8 @@ function App() {
 
   const sendOffer = (sessionDescription: RTCSessionDescriptionInit) => {
     setInCall(true);
-    localConnection.current
-      .setLocalDescription(sessionDescription)
+    localConnection
+      .current!.setLocalDescription(sessionDescription)
       .then(() => {
         consoleDebug("setLocalDescription complete for local from local");
         // Send offer to remote peer
@@ -410,14 +447,14 @@ function App() {
     peerConnectionId: string
   ) => {
     setInCall(true);
-    localConnection.current
-      .setRemoteDescription(sessionDescription)
+    localConnection
+      .current!.setRemoteDescription(sessionDescription)
       .then(() => {
         consoleDebug("setLocalDescription complete for remote from local");
         localStream?.getTracks().forEach((track) => {
           consoleDebug(track);
           try {
-            localConnection.current.addTrack(track, localStream);
+            localConnection.current!.addTrack(track, localStream);
           } catch (err) {
             consoleDebug(`Could not add track. ${err}`);
           }
@@ -430,7 +467,7 @@ function App() {
   };
 
   const buildAnswer = (peerConnectionId: string) => {
-    localConnection.current.onicecandidate = (iceEvent) => {
+    localConnection.current!.onicecandidate = (iceEvent) => {
       sendPeerMessage(
         peerConnectionId,
         "iceCandidate",
@@ -438,11 +475,11 @@ function App() {
       );
     };
 
-    localConnection.current
-      .createAnswer()
+    localConnection
+      .current!.createAnswer()
       .then((sessionDescription) => {
-        localConnection.current
-          .setLocalDescription(sessionDescription)
+        localConnection
+          .current!.setLocalDescription(sessionDescription)
           .then(() => {
             consoleDebug("setLocalDescription complete for local from local");
             sendPeerMessage(
@@ -459,8 +496,8 @@ function App() {
   };
 
   const onAnswer = (sessionDescription: RTCSessionDescriptionInit) => {
-    localConnection.current
-      .setRemoteDescription(sessionDescription)
+    localConnection
+      .current!.setRemoteDescription(sessionDescription)
       .then(() =>
         consoleDebug("setLocalDescription complete for remote from local")
       )
@@ -487,21 +524,24 @@ function App() {
   };
 
   const callPeer = () => {
-    setLocalStreamHeight(localStreamHeight / 2);
-    setLocalStreamWidth(localStreamWidth / 2);
+    setLocalStreamPosition({
+      ...localStreamPosition,
+      height: localStreamPosition.height / 2,
+      width: localStreamPosition.width / 2,
+    });
     setInCall(true);
     setCalling(false);
     // Should trigger on negotiation neeeded
     localStream?.getTracks().forEach((track) => {
       consoleDebug(track);
       try {
-        localConnection.current.addTrack(track, localStream);
+        localConnection.current!.addTrack(track, localStream);
       } catch (err) {
         consoleDebug(`Could not add track. ${err}`, true);
       }
     });
 
-    dataChannel.current = localConnection.current.createDataChannel(
+    dataChannel.current = localConnection.current!.createDataChannel(
       "textChannel"
     );
     setUpDataChannel();
@@ -512,7 +552,7 @@ function App() {
     setPeerUsername("");
     setRemoteConnectionId("");
     dataChannel.current?.close();
-    localConnection.current.close();
+    localConnection.current!.close();
     localConnection.current = new RTCPeerConnection(configuration);
     setUpLocalConnection();
   };
@@ -530,65 +570,94 @@ function App() {
   };
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <main
-          className={clsx(classes.content, {
-            [classes.contentShift]: chatOpen,
-          })}
+    <div className={classes.root}>
+      <main
+        className={clsx(classes.content, {
+          [classes.contentShift]: true,
+        })}
+      >
+        <Rnd
+          className={classes.localStreamRnd}
+          size={{
+            height: localStreamPosition.height,
+            width: localStreamPosition.width,
+          }}
+          position={{ x: localStreamPosition.x, y: localStreamPosition.y }}
+          onDragStop={(_dragEvent, dragData) => {
+            setLocalStreamPosition({
+              ...localStreamPosition,
+              x: Math.min(
+                dragData.x,
+                window.screen.availWidth -
+                  drawerWidth -
+                  localStreamPosition.width +
+                  20
+              ),
+              y: dragData.y,
+            });
+          }}
+          onResize={(mouseEvent, direction, elementRef, delta, position) => {
+            setLocalStreamPosition({
+              ...localStreamPosition,
+              height: parseInt(elementRef.style.height),
+              width: parseInt(elementRef.style.width),
+              x: Math.min(
+                position.x,
+                window.screen.availWidth -
+                  drawerWidth -
+                  localStreamPosition.width +
+                  20
+              ),
+              y: position.y,
+            });
+          }}
+          bounds="window"
+          lockAspectRatio={localStreamPosition.aspectRatio}
         >
-          <Rnd
-            className={classes.localStreamRnd}
-            default={{
-              x: -60,
-              y: 20,
-              width: localStream?.getVideoTracks()[0].getSettings().width || 0,
-              height:
-                localStream?.getVideoTracks()[0].getSettings().height || 0,
-            }}
-            bounds=".App-header"
-          >
-            {localStream ? (
-              <VideoStream
-                srcObject={localStream}
-                muted
-                styleObject={{
-                  height: localStreamHeight,
-                  width: localStreamWidth,
-                }}
-              />
-            ) : (
-              <h4>Please enable your camera</h4>
-            )}
-          </Rnd>
+          {localStream ? (
+            <VideoStream
+              srcObject={localStream}
+              muted
+              styleObject={{
+                height: localStreamPosition.height,
+                width: localStreamPosition.width,
+                border: "2px dashed rgba(255, 255, 255, 0.1)",
+              }}
+            />
+          ) : (
+            <h4>Please enable your camera</h4>
+          )}
+        </Rnd>
+        <div className={classes.remoteStream}>
           {remoteStream && inCall && (
             <VideoStream
               srcObject={remoteStream}
               styleObject={{
                 height: "100vh",
-                width: `calc(100vw - ${drawerWidth})`,
+                width: `100%`,
                 objectFit: "contain",
                 position: "absolute",
                 top: 0,
                 left: 0,
+                right: 1000,
                 zIndex: 2,
               }}
             />
           )}
-          <div className={classes.callControls}>
-            <IconButton
-              className={
-                !localConnection.current || !inCall
-                  ? classes.hangupButtonDisabled
-                  : classes.hangupButtonEnabled
-              }
-              disabled={!localConnection.current || !inCall}
-              onClick={() => hangUp()}
-              color="inherit"
-            >
-              <CallEndIcon fontSize="large" color="inherit" />
-            </IconButton>
-            {/*<input
+        </div>
+        <IconButton
+          className={
+            !localConnection.current || !inCall
+              ? classes.hangupButtonDisabled
+              : classes.hangupButtonEnabled
+          }
+          disabled={!localConnection.current || !inCall}
+          onClick={() => hangUp()}
+          color="inherit"
+        >
+          <CallEndIcon fontSize="large" color="inherit" />
+        </IconButton>
+        {/*<input
               type="checkbox"
               disabled={!window.console || !console}
               defaultChecked={debugLogs}
@@ -599,140 +668,128 @@ function App() {
                 Open chat
               </button>
             </div>*/}
-          </div>
-          <Dialog
-            open={incomingCall}
-            TransitionComponent={Transition}
-            keepMounted
-            onClose={() => rejectCall()}
-            aria-labelledby="alert-dialog-slide-title"
-            aria-describedby="alert-dialog-slide-description"
-          >
-            <DialogTitle id="alert-dialog-slide-title">
-              Incoming call
-            </DialogTitle>
-            <DialogContent>
-              <DialogContentText id="alert-dialog-slide-description">
-                Would you like to accept the call from <b>{peerUsername}</b>?
-              </DialogContentText>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => rejectCall()} color="primary">
-                Decline
-              </Button>
-              <Button onClick={() => acceptCall()} color="primary">
-                Accept
-              </Button>
-            </DialogActions>
-          </Dialog>
-          <Dialog
-            open={callRejected}
-            TransitionComponent={Transition}
-            keepMounted
-            onClose={() => setCallRejected(false)}
-            aria-labelledby="alert-dialog-slide-title"
-            aria-describedby="alert-dialog-slide-description"
-          >
-            <DialogTitle id="alert-dialog-slide-title">Declined</DialogTitle>
-            <DialogContent>
-              <DialogContentText id="alert-dialog-slide-description">
-                <b>{peerUsername}</b> declined to answer your call.
-              </DialogContentText>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setCallRejected(false)} color="primary">
-                Ok
-              </Button>
-            </DialogActions>
-          </Dialog>
-        </main>
-        <Drawer
-          className={classes.drawer}
-          variant="persistent"
-          anchor="right"
-          open={chatOpen}
-          classes={{
-            paper: classes.drawerPaper,
-          }}
+        <Dialog
+          open={incomingCall}
+          TransitionComponent={Transition}
+          keepMounted
+          onClose={() => rejectCall()}
+          aria-labelledby="alert-dialog-slide-title"
+          aria-describedby="alert-dialog-slide-description"
         >
-          <div>
-            <Typography>
-              {peerUsername && inCall ? `In a call with` : `Your username is`}
-            </Typography>
-            <Typography variant="h6">
-              {peerUsername && inCall ? peerUsername : username}
-            </Typography>
-          </div>
-          <Divider />
-          <Box
-            className={classes.textAreaContainer}
-            display="flex"
-            flexDirection="column"
-            justifyContent="spaceBetween"
-          >
+          <DialogTitle id="alert-dialog-slide-title">Incoming call</DialogTitle>
+          <DialogContent>
+            <DialogContentText id="alert-dialog-slide-description">
+              Would you like to accept the call from <b>{peerUsername}</b>?
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => rejectCall()}>Decline</Button>
+            <Button onClick={() => acceptCall()}>Accept</Button>
+          </DialogActions>
+        </Dialog>
+        <Dialog
+          open={callRejected}
+          TransitionComponent={Transition}
+          keepMounted
+          onClose={() => setCallRejected(false)}
+          aria-labelledby="alert-dialog-slide-title"
+          aria-describedby="alert-dialog-slide-description"
+        >
+          <DialogTitle id="alert-dialog-slide-title">Declined</DialogTitle>
+          <DialogContent>
+            <DialogContentText id="alert-dialog-slide-description">
+              <b>{peerUsername}</b> declined to answer your call.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCallRejected(false)}>Ok</Button>
+          </DialogActions>
+        </Dialog>
+      </main>
+      <Drawer
+        className={classes.drawer}
+        variant="persistent"
+        anchor="right"
+        open={true}
+        classes={{
+          paper: classes.drawerPaper,
+        }}
+      >
+        <div>
+          <Typography>
+            {peerUsername && inCall ? `In a call with` : `Your username is`}
+          </Typography>
+          <Typography variant="h6">
+            {peerUsername && inCall ? peerUsername : username}
+          </Typography>
+        </div>
+        <Divider />
+        <Box
+          className={classes.textAreaContainer}
+          display="flex"
+          flexDirection="column"
+          justifyContent="spaceBetween"
+        >
+          <Box display="flex" flexGrow={1}>
+            <TextareaAutosize
+              className={classes.textArea}
+              value={chatContent}
+              readOnly={true}
+              draggable={false}
+            />
+          </Box>
+          <Box display="flex" flexWrap="nowrap" padding={1}>
             <Box display="flex" flexGrow={1}>
-              <TextareaAutosize
-                className={classes.textArea}
-                value={chatContent}
-                readOnly={true}
-                draggable={false}
+              <TextField
+                fullWidth
+                placeholder={inCall ? "Message" : placeholderUsername}
+                disabled={calling || incomingCall}
+                value={inCall ? currentMessage : remoteConnectionId}
+                onChange={(event) => {
+                  if (!inCall) {
+                    setRemoteConnectionId(event.target.value);
+                    setPeerUsername(event.target.value);
+                  } else setCurrentMessage(event.target.value);
+                }}
+                onKeyDown={(keyEvent) => {
+                  if (keyEvent.key === "Enter") {
+                    inCall ? sendTextMessage() : callRequest();
+                  }
+                }}
               />
             </Box>
-            <Box display="flex" flexWrap="nowrap">
-              <Box display="flex" flexGrow={1}>
-                <TextField
-                  fullWidth
-                  placeholder={
-                    inCall ? "Message" : (randomwords(2) as string[]).join("-")
+            <Box display="flex" flexGrow={0}>
+              {inCall ? (
+                <Button
+                  disabled={
+                    incomingCall ||
+                    calling ||
+                    !currentMessage ||
+                    !dataChannel.current
                   }
-                  disabled={calling || incomingCall}
-                  value={inCall ? currentMessage : remoteConnectionId}
-                  onChange={(event) => {
-                    if (!inCall) {
-                      setRemoteConnectionId(event.target.value);
-                      setPeerUsername(event.target.value);
-                    } else setCurrentMessage(event.target.value);
-                  }}
-                  onKeyDown={(keyEvent) => {
-                    if (keyEvent.key === "Enter") {
-                      inCall ? sendTextMessage() : callRequest();
-                    }
-                  }}
-                />
-              </Box>
-              <Box display="flex" flexGrow={0}>
-                {inCall ? (
-                  <Button
-                    disabled={
-                      incomingCall ||
-                      calling ||
-                      !currentMessage ||
-                      !dataChannel.current
-                    }
-                    onClick={() => sendTextMessage()}
-                  >
-                    Send
-                  </Button>
-                ) : (
-                  <Button
-                    disabled={
-                      !localConnection.current ||
-                      !webSocket.current ||
-                      !remoteConnectionId ||
-                      calling ||
-                      inCall ||
-                      !/^\w+(-\w+)$/.test(remoteConnectionId)
-                    }
-                    onClick={() => callRequest()}
-                  >
-                    Connect
-                  </Button>
-                )}
-              </Box>
+                  onClick={() => sendTextMessage()}
+                >
+                  Send
+                </Button>
+              ) : (
+                <Button
+                  disabled={
+                    !localConnection.current ||
+                    !webSocket.current ||
+                    !remoteConnectionId ||
+                    calling ||
+                    inCall ||
+                    !/^\w+(-\w+)$/.test(remoteConnectionId)
+                  }
+                  onClick={() => callRequest()}
+                >
+                  Connect
+                </Button>
+              )}
             </Box>
           </Box>
-        </Drawer>
-      </header>
+        </Box>
+      </Drawer>
     </div>
   );
 }
