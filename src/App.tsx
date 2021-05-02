@@ -147,6 +147,7 @@ function App() {
   const [incomingCall, setIncomingCall] = useState<boolean>(false);
   const [calling, setCalling] = useState<boolean>(false);
   const [inCall, setInCall] = useState<boolean>(false);
+  const [callRejected, setCallRejected] = useState<boolean>(false);
   const [debugLogs, setDebugLogs] = useState<boolean>(true);
   const [chatContent, setChatContent] = useState<string>("");
   const [chatOpen, setChatOpen] = useState<boolean>(true);
@@ -346,7 +347,8 @@ function App() {
         break;
       case "callReject":
         setCalling(false);
-        alert(`${senderConnectionId} rejected the call.`);
+        setCallRejected(true);
+        setRemoteConnectionId("");
         break;
       default:
         consoleDebug("Invalid peer message type.", true);
@@ -620,6 +622,26 @@ function App() {
               </Button>
               <Button onClick={() => acceptCall()} color="primary">
                 Accept
+              </Button>
+            </DialogActions>
+          </Dialog>
+          <Dialog
+            open={callRejected}
+            TransitionComponent={Transition}
+            keepMounted
+            onClose={() => setCallRejected(false)}
+            aria-labelledby="alert-dialog-slide-title"
+            aria-describedby="alert-dialog-slide-description"
+          >
+            <DialogTitle id="alert-dialog-slide-title">Declined</DialogTitle>
+            <DialogContent>
+              <DialogContentText id="alert-dialog-slide-description">
+                <b>{peerUsername}</b> declined to answer your call.
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setCallRejected(false)} color="primary">
+                Ok
               </Button>
             </DialogActions>
           </Dialog>
