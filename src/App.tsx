@@ -176,6 +176,7 @@ function App() {
   const [calling, setCalling] = useState<boolean>(false);
   const [inCall, setInCall] = useState<boolean>(false);
   const [callRejected, setCallRejected] = useState<boolean>(false);
+  const [callFailed, setCallFailed] = useState<boolean>(false);
   // const [debugLogs, setDebugLogs] = useState<boolean>(true);
   const [chatContent, setChatContent] = useState<string>("");
   // const [chatOpen, setChatOpen] = useState<boolean>(true);
@@ -281,6 +282,10 @@ function App() {
                 username: twoWords,
               })
             );
+            break;
+          case "missingPeer":
+            hangUp();
+            setCallFailed(true);
             break;
           default:
             consoleDebug(
@@ -548,6 +553,7 @@ function App() {
   };
 
   const hangUp = () => {
+    setCalling(false);
     setInCall(false);
     setPeerUsername("");
     setRemoteConnectionId("");
@@ -703,6 +709,24 @@ function App() {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setCallRejected(false)}>Ok</Button>
+          </DialogActions>
+        </Dialog>
+        <Dialog
+          open={callFailed}
+          TransitionComponent={Transition}
+          keepMounted
+          onClose={() => setCallFailed(false)}
+          aria-labelledby="alert-dialog-slide-title"
+          aria-describedby="alert-dialog-slide-description"
+        >
+          <DialogTitle id="alert-dialog-slide-title">Call Failed</DialogTitle>
+          <DialogContent>
+            <DialogContentText id="alert-dialog-slide-description">
+              The specified user <b>{peerUsername}</b> could not be found.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setCallFailed(false)}>Dismiss</Button>
           </DialogActions>
         </Dialog>
       </main>

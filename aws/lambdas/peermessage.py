@@ -2,7 +2,7 @@ import json
 import boto3
 
 def lambda_handler(event, context):
-    errorResponse = { 'statusCode': 400, 'body': json.dumps('Message could not be sent. Ensure correct peer.') }
+    errorResponse = { 'statusCode': 400, 'body': json.dumps({"message": 'Message could not be sent. Ensure correct peer.', "responseType": "missingPeer"}) }
     print('event:', json.dumps(event))
     if 'body' in event and 'requestContext' in event and 'connectionId' in event['requestContext']:
         connectionId = event['requestContext']['connectionId']
