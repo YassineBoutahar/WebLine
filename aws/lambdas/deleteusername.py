@@ -2,12 +2,10 @@ import json
 import boto3
 
 def lambda_handler(event, context):
-    errorResponse = { 'statusCode': 400, 'body': json.dumps({"responseType": "usernameUnavailable"}) }
+    errorResponse = { 'statusCode': 401 }
     print('event:', json.dumps(event))
     if 'body' in event and 'requestContext' in event and 'connectionId' in event['requestContext']:
         connectionId = event['requestContext']['connectionId']
-        requestTime = event['requestContext']['requestTimeEpoch']
-        errorResponse = { 'statusCode': 400, 'body': json.dumps({"responseType": "usernameUnavailable", "requestTime": requestTime}) }
         body = json.loads(event['body'])
         if not 'username' in body:
             return errorResponse
@@ -16,11 +14,11 @@ def lambda_handler(event, context):
         dynamodb = boto3.resource('dynamodb')
         table = dynamodb.Table('WebLinePeers')
         response = table.get_item(Key={'username': username})
-        if 'Item' in response:
+        if 'Item' in response and response['Item']['connectionId'] != connectionId:
             return errorResponse
         
-        response = table.put_item(Item={'username': username, 'connectionId': connectionId})
+        response = table.delete_item(Key={'username': username})
 
-        return { 'statusCode': response['ResponseMetadata']['HTTPStatusCode'], 'body': json.dumps({"responseType": "usernameSet", "username": username, "requestTime": requestTime}) }
+        return { 'statusCode': response['ResponseMetadata']['HTTPStatusCode'] }
     else:
         return errorResponse

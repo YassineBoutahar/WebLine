@@ -9,16 +9,6 @@ const darkTheme = createMuiTheme({
   palette: {
     type: "dark",
   },
-  overrides: {
-    MuiIconButton: {
-      root: {
-        '&:hover': {
-          opacity: 1,
-          backgroundColor: "red"
-        }
-      }
-    }
-  }
 });
 
 ReactDOM.render(

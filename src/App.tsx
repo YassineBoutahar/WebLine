@@ -23,6 +23,8 @@ import {
   createStyles,
 } from "@material-ui/core";
 import CallEndIcon from "@material-ui/icons/CallEnd";
+import ChatIcon from "@material-ui/icons/Chat";
+import ChevronRightIcon from "@material-ui/icons/ChevronRight";
 import { TransitionProps } from "@material-ui/core/transitions";
 import randomwords from "random-words";
 import VideoStream from "./VideoStream";
@@ -116,21 +118,33 @@ const useStyles = makeStyles((theme: Theme) =>
       marginRight: drawerWidth,
     },
     hangupButtonEnabled: {
-      position: "absolute",
-      left: window.screen.availWidth / 2 - drawerWidth / 2,
-      bottom: 20,
+      "&:hover": {
+        opacity: 1,
+        backgroundColor: "red",
+      },
       backgroundColor: "red",
       color: "white",
-      zIndex: 100,
       opacity: 0.2,
+      marginRight: 25,
     },
     hangupButtonDisabled: {
+      backgroundColor: "grey",
+      color: "white",
+      marginRight: 25,
+    },
+    callControls: {
+      display: "flex",
       position: "absolute",
       left: window.screen.availWidth / 2 - drawerWidth / 2,
       bottom: 20,
-      backgroundColor: "grey",
-      color: "white",
       zIndex: 100,
+    },
+    chatOpenButton: {
+      "&:hover": {
+        opacity: 1,
+      },
+      opacity: 0.4,
+      color: theme.palette.text.secondary,
     },
     textAreaContainer: {
       height: "100%",
@@ -149,6 +163,9 @@ const useStyles = makeStyles((theme: Theme) =>
       MozBoxShadow: "none",
       WebkitBoxShadow: "none",
       overflowY: "auto",
+    },
+    hidden: {
+      opacity: 0,
     },
   })
 );
@@ -179,7 +196,7 @@ function App() {
   const [callFailed, setCallFailed] = useState<boolean>(false);
   // const [debugLogs, setDebugLogs] = useState<boolean>(true);
   const [chatContent, setChatContent] = useState<string>("");
-  // const [chatOpen, setChatOpen] = useState<boolean>(true);
+  const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [currentMessage, setCurrentMessage] = useState<string>("");
   const localConnection = useRef<RTCPeerConnection | null>(null);
   const dataChannel = useRef<RTCDataChannel>();
@@ -246,7 +263,15 @@ function App() {
       consoleDebug("Socket connection closed.");
     });
 
-    return () => webSocket.current?.close();
+    return () => {
+      webSocket.current!.send(
+        JSON.stringify({
+          action: "deleteusername",
+          username: username,
+        })
+      );
+      webSocket.current?.close();
+    };
   }, []);
 
   useEffect(() => {
@@ -651,18 +676,28 @@ function App() {
             />
           )}
         </div>
-        <IconButton
-          className={
-            !localConnection.current || !inCall
-              ? classes.hangupButtonDisabled
-              : classes.hangupButtonEnabled
-          }
-          disabled={!localConnection.current || !inCall}
-          onClick={() => hangUp()}
-          color="inherit"
-        >
-          <CallEndIcon fontSize="large" color="inherit" />
-        </IconButton>
+        <Box className={classes.callControls}>
+          <IconButton
+            className={
+              !localConnection.current || !inCall
+                ? classes.hangupButtonDisabled
+                : classes.hangupButtonEnabled
+            }
+            disabled={!localConnection.current || !inCall}
+            onClick={() => hangUp()}
+            color="inherit"
+          >
+            <CallEndIcon fontSize="large" color="inherit" />
+          </IconButton>
+          <IconButton
+            className={classes.chatOpenButton}
+            onClick={() => setChatOpen(!chatOpen)}
+            color="inherit"
+          >
+            <ChatIcon fontSize="large" color="inherit" />
+          </IconButton>
+        </Box>
+
         {/*<input
               type="checkbox"
               disabled={!window.console || !console}
@@ -734,19 +769,39 @@ function App() {
         className={classes.drawer}
         variant="persistent"
         anchor="right"
-        open={true}
+        open={chatOpen}
         classes={{
           paper: classes.drawerPaper,
         }}
       >
-        <div>
-          <Typography>
-            {peerUsername && inCall ? `In a call with` : `Your username is`}
-          </Typography>
-          <Typography variant="h6">
-            {peerUsername && inCall ? peerUsername : username}
-          </Typography>
-        </div>
+        <Box
+          display="flex"
+          justifyContent="space-between"
+          alignContent="center"
+        >
+          <Box>
+            <IconButton
+              disabled={!chatOpen}
+              onClick={() => setChatOpen(false)}
+              color="inherit"
+            >
+              <ChevronRightIcon fontSize="large" color="inherit" />
+            </IconButton>
+          </Box>
+          <Box>
+            <Typography>
+              {peerUsername && inCall ? `In a call with` : `Your username is`}
+            </Typography>
+            <Typography variant="h6">
+              {peerUsername && inCall ? peerUsername : username}
+            </Typography>
+          </Box>
+          <Box>
+            <IconButton className={classes.hidden} disabled>
+              <ChevronRightIcon fontSize="large" color="inherit" />
+            </IconButton>
+          </Box>
+        </Box>
         <Divider />
         <Box
           className={classes.textAreaContainer}
