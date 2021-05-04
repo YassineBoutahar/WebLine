@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { Rnd } from "react-rnd";
+import { ChatFeed, Message } from "react-chat-ui";
 import {
   Button,
   Dialog,
@@ -15,7 +16,6 @@ import {
   Divider,
   Typography,
   TextField,
-  TextareaAutosize,
   Box,
   IconButton,
   makeStyles,
@@ -150,19 +150,9 @@ const useStyles = makeStyles((theme: Theme) =>
       height: "100%",
       width: "100%",
     },
-    textArea: {
-      height: "100%",
-      width: "100%",
-      background: "none",
-      color: theme.palette.text.primary,
-      boxSizing: "border-box",
-      border: "none",
-      resize: "none",
-      outline: "none",
-      boxShadow: "none",
-      MozBoxShadow: "none",
-      WebkitBoxShadow: "none",
-      overflowY: "auto",
+    chatFeed: {
+      paddingLeft: 7,
+      paddingRight: 7,
     },
     hidden: {
       opacity: 0,
@@ -195,7 +185,7 @@ function App() {
   const [callRejected, setCallRejected] = useState<boolean>(false);
   const [callFailed, setCallFailed] = useState<boolean>(false);
   // const [debugLogs, setDebugLogs] = useState<boolean>(true);
-  const [chatContent, setChatContent] = useState<string>("");
+  const [chatContent, setChatContent] = useState<Message[]>([]);
   const [chatOpen, setChatOpen] = useState<boolean>(true);
   const [currentMessage, setCurrentMessage] = useState<string>("");
   const localConnection = useRef<RTCPeerConnection | null>(null);
@@ -376,7 +366,7 @@ function App() {
     };
     sendPeerMessage(remoteConnectionId, "callAccept", " ");
     setPeerUsername(peerUsername);
-    setChatContent("");
+    setChatContent([]);
     setIncomingCall(false);
     setInCall(true);
   };
@@ -548,7 +538,7 @@ function App() {
   };
 
   const callRequest = () => {
-    setChatContent("");
+    setChatContent([]);
     setCalling(true);
     sendPeerMessage(remoteConnectionId, "callRequest", username);
   };
@@ -589,13 +579,21 @@ function App() {
   };
 
   const receiveTextMessage = (receivedMessage: string) => {
-    let newMessage = `${peerUsername}: ${receivedMessage}\r\n`;
-    setChatContent((prev) => prev + newMessage);
+    setChatContent((prev) => [
+      ...prev,
+      new Message({
+        id: 1,
+        message: receivedMessage,
+        senderName: peerUsername,
+      }),
+    ]);
   };
 
   const sendTextMessage = () => {
-    let newMessage = `${username}: ${currentMessage}\r\n`;
-    setChatContent((prev) => prev + newMessage);
+    setChatContent((prev) => [
+      ...prev,
+      new Message({ id: 0, message: currentMessage, senderName: username }),
+    ]);
     dataChannel.current?.send(currentMessage);
     setCurrentMessage("");
   };
@@ -809,12 +807,21 @@ function App() {
           flexDirection="column"
           justifyContent="spaceBetween"
         >
-          <Box display="flex" flexGrow={1}>
-            <TextareaAutosize
-              className={classes.textArea}
-              value={chatContent}
-              readOnly={true}
-              draggable={false}
+          <Box className={classes.chatFeed} display="flex" flexGrow={1}>
+            <ChatFeed
+              messages={chatContent}
+              hasInputField={false}
+              showSenderName={false}
+              bubblesCentered={false}
+              bubbleStyles={{
+                text: {
+                  fontSize: 15,
+                },
+                chatbubble: {
+                  borderRadius: 50,
+                  padding: 10,
+                },
+              }}
             />
           </Box>
           <Box display="flex" flexWrap="nowrap" padding={1}>
@@ -831,8 +838,22 @@ function App() {
                   } else setCurrentMessage(event.target.value);
                 }}
                 onKeyDown={(keyEvent) => {
-                  if (keyEvent.key === "Enter") {
-                    inCall ? sendTextMessage() : callRequest();
+                  if (
+                    keyEvent.key === "Enter" &&
+                    !inCall &&
+                    localConnection.current &&
+                    webSocket.current &&
+                    remoteConnectionId &&
+                    !calling &&
+                    /^\w+(-\w+)$/.test(remoteConnectionId)
+                  ) {
+                    callRequest();
+                  } else if (
+                    keyEvent.key === "Enter" &&
+                    inCall &&
+                    dataChannel.current
+                  ) {
+                    sendTextMessage();
                   }
                 }}
               />
